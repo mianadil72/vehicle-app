@@ -1,14 +1,19 @@
-import { useEffect } from 'react';
-import { Link, useLocation, useParams } from 'react-router';
-import { fetchVehicle, fetchVehicles, useRemote } from '../api';
+import { useEffect, useState } from 'react';
+import type { Vehicle } from '../types';
+import { Link, useLocation, useNavigate, useParams } from 'react-router';
+import { ApiError, deleteVehicle, fetchVehicle, fetchVehicles, useRemote } from '../api';
+import { authErrorMessage, useAuth } from '../auth';
+import type { NavState } from '../navigation';
 import { formatMileage, formatPrice } from '../format';
 import { PhotoGallery } from '../components/PhotoGallery';
 import { RemoteStatus } from '../components/RemoteStatus';
 import { VehicleCard } from '../components/VehicleCard';
+import { VehicleComments } from '../components/VehicleComments';
 
 export function VehicleDetailPage() {
   const { id } = useParams();
   const location = useLocation();
+  const { isAdmin } = useAuth();
 
   // Unknown paths (no :id) skip loading and show the "not found" state.
   const remote = useRemote(id ?? null, (signal) => fetchVehicle(id!, signal));
@@ -21,7 +26,7 @@ export function VehicleDetailPage() {
   const similar = similarRemote.status === 'ready' ? similarRemote.data : [];
 
   // Return to the inventory with the same filters the user came from.
-  const from = (location.state as { from?: string } | null)?.from;
+  const from = (location.state as NavState | null)?.from;
   const backTo = from && from.startsWith('/') && !from.startsWith('/vehicles/') ? from : '/';
 
   useEffect(() => {
@@ -106,8 +111,12 @@ export function VehicleDetailPage() {
               </div>
             ))}
           </dl>
+
+          {isAdmin && <VehicleActions key={v.id} vehicle={v} backTo={backTo} />}
         </aside>
       </div>
+
+      <VehicleComments key={v.id} vehicleId={v.id} />
 
       {similar.length > 0 && (
         <section className="similar">
@@ -118,5 +127,64 @@ export function VehicleDetailPage() {
         </section>
       )}
     </>
+  );
+}
+
+/** Edit and Delete buttons, with an inline confirmation before deleting. */
+function VehicleActions({ vehicle: v, backTo }: { vehicle: Vehicle; backTo: string }) {
+  const navigate = useNavigate();
+  const auth = useAuth();
+  const [confirming, setConfirming] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  const onDelete = async () => {
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await deleteVehicle(v.id);
+    } catch (err) {
+      // Already gone counts as deleted.
+      if (!(err instanceof ApiError && err.status === 404)) {
+        setDeleting(false);
+        const authProblem = authErrorMessage(err);
+        if (authProblem) auth.refresh(); // Re-check the session; the buttons disappear if it ended.
+        setDeleteError(authProblem ?? "Couldn't delete this vehicle. Check that the API server is running, then try again.");
+        return;
+      }
+    }
+    const state: NavState = { notice: `${v.year} ${v.name} ${v.model} (${v.stockNumber}) was deleted.` };
+    navigate(backTo, { replace: true, state });
+  };
+
+  if (confirming) {
+    return (
+      <div className="confirm" role="alertdialog" aria-labelledby="confirm-title" aria-describedby="confirm-desc">
+        <p id="confirm-title" className="confirm-title">Delete this vehicle?</p>
+        <p id="confirm-desc">
+          {v.year} {v.name} {v.model} ({v.stockNumber}) and its photos will be removed from inventory. This can't be undone.
+        </p>
+        {deleteError && <p className="field-error" role="alert">{deleteError}</p>}
+        <div className="form-actions">
+          <button type="button" className="button button-danger" onClick={onDelete} disabled={deleting} autoFocus>
+            {deleting ? 'Deleting…' : 'Delete vehicle'}
+          </button>
+          <button type="button" className="button button-secondary" onClick={() => setConfirming(false)} disabled={deleting}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="detail-actions">
+      <Link to={`/vehicles/${v.id}/edit`} state={{ from: backTo } satisfies NavState} className="button">
+        Edit
+      </Link>
+      <button type="button" className="button button-danger-outline" onClick={() => setConfirming(true)}>
+        Delete
+      </button>
+    </div>
   );
 }

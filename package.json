@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:api": "node --watch --env-file-if-exists=.env server/index.ts",
+    "dev:api": "node --env-file-if-exists=.env server/dev.ts",
     "db:setup": "node --env-file-if-exists=.env server/db/setup.ts",
+    "user": "node --env-file-if-exists=.env server/db/user.ts",
     "build": "tsc -b && vite build",
     "start": "node --env-file-if-exists=.env server/index.ts",
     "lint": "oxlint",

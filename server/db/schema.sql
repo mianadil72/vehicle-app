@@ -39,3 +39,74 @@ BEGIN
   );
 END
 GO
+
+IF OBJECT_ID(N'dbo.Users', N'U') IS NULL
+BEGIN
+  -- Internal user accounts. Only 'admin' may add, edit or delete vehicles; 'staff' can view only.
+  -- Create or reset accounts with `npm run user -- <username> --role admin|staff`.
+  CREATE TABLE dbo.Users (
+    UserId        INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_Users PRIMARY KEY,
+    Username      NVARCHAR(50)  NOT NULL CONSTRAINT UQ_Users_Username UNIQUE,  -- stored lower-case
+    PasswordHash  VARCHAR(200)  NOT NULL,                                       -- scrypt, see server/auth.ts
+    Role          VARCHAR(10)   NOT NULL CONSTRAINT CK_Users_Role CHECK (Role IN ('admin', 'staff')),
+    IsActive      BIT           NOT NULL CONSTRAINT DF_Users_IsActive DEFAULT 1,
+    CreatedAt     DATETIME2(0)  NOT NULL CONSTRAINT DF_Users_CreatedAt DEFAULT SYSUTCDATETIME(),
+    LastLoginAt   DATETIME2(0)  NULL
+  );
+END
+GO
+
+IF OBJECT_ID(N'dbo.Sessions', N'U') IS NULL
+BEGIN
+  -- Signed-in sessions. Only a SHA-256 hash of the cookie token is stored.
+  CREATE TABLE dbo.Sessions (
+    TokenHash  BINARY(32)    NOT NULL CONSTRAINT PK_Sessions PRIMARY KEY,
+    UserId     INT           NOT NULL CONSTRAINT FK_Sessions_Users REFERENCES dbo.Users (UserId) ON DELETE CASCADE,
+    CreatedAt  DATETIME2(0)  NOT NULL CONSTRAINT DF_Sessions_CreatedAt DEFAULT SYSUTCDATETIME(),
+    ExpiresAt  DATETIME2(0)  NOT NULL
+  );
+  CREATE INDEX IX_Sessions_UserId ON dbo.Sessions (UserId);
+  CREATE INDEX IX_Sessions_ExpiresAt ON dbo.Sessions (ExpiresAt);
+END
+GO
+
+IF OBJECT_ID(N'dbo.VehicleComments', N'U') IS NULL
+BEGIN
+  -- Reviews/notes on a vehicle. Everyone can read them; only admins can add or delete them.
+  CREATE TABLE dbo.VehicleComments (
+    CommentId  INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_VehicleComments PRIMARY KEY,
+    VehicleId  INT            NOT NULL CONSTRAINT FK_VehicleComments_Vehicles
+                 REFERENCES dbo.Vehicles (VehicleId) ON DELETE CASCADE,
+    UserId     INT            NOT NULL CONSTRAINT FK_VehicleComments_Users REFERENCES dbo.Users (UserId),
+    Body       NVARCHAR(2000) NOT NULL CONSTRAINT CK_VehicleComments_Body CHECK (LEN(Body) > 0),
+    CreatedAt  DATETIME2(0)   NOT NULL CONSTRAINT DF_VehicleComments_CreatedAt DEFAULT SYSUTCDATETIME()
+  );
+  CREATE INDEX IX_VehicleComments_VehicleId ON dbo.VehicleComments (VehicleId, CreatedAt DESC);
+END
+GO
+
+IF OBJECT_ID(N'dbo.PasswordResetRequests', N'U') IS NULL
+BEGIN
+  -- "Forgot password" requests waiting for an admin. At most one open request per user.
+  CREATE TABLE dbo.PasswordResetRequests (
+    UserId       INT          NOT NULL CONSTRAINT PK_PasswordResetRequests PRIMARY KEY
+                   CONSTRAINT FK_PasswordResetRequests_Users REFERENCES dbo.Users (UserId) ON DELETE CASCADE,
+    RequestedAt  DATETIME2(0) NOT NULL CONSTRAINT DF_PasswordResetRequests_RequestedAt DEFAULT SYSUTCDATETIME()
+  );
+END
+GO
+
+IF OBJECT_ID(N'dbo.PasswordResetTokens', N'U') IS NULL
+BEGIN
+  -- One-time reset links created by an admin. Only a SHA-256 hash of the token is stored;
+  -- creating a new link for a user replaces their previous one.
+  CREATE TABLE dbo.PasswordResetTokens (
+    TokenHash        BINARY(32)   NOT NULL CONSTRAINT PK_PasswordResetTokens PRIMARY KEY,
+    UserId           INT          NOT NULL CONSTRAINT FK_PasswordResetTokens_Users REFERENCES dbo.Users (UserId) ON DELETE CASCADE,
+    CreatedByUserId  INT          NOT NULL CONSTRAINT FK_PasswordResetTokens_CreatedBy REFERENCES dbo.Users (UserId),
+    CreatedAt        DATETIME2(0) NOT NULL CONSTRAINT DF_PasswordResetTokens_CreatedAt DEFAULT SYSUTCDATETIME(),
+    ExpiresAt        DATETIME2(0) NOT NULL
+  );
+  CREATE INDEX IX_PasswordResetTokens_UserId ON dbo.PasswordResetTokens (UserId);
+END
+GO

@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from 'react';
-import { useSearchParams } from 'react-router';
+import { Link, useLocation, useSearchParams } from 'react-router';
 import { fetchVehicles, useRemote } from '../api';
+import { useAuth } from '../auth';
 import { CATEGORIES, type Category, type Vehicle } from '../types';
 import { VehicleCard } from '../components/VehicleCard';
 import { VehicleTable } from '../components/VehicleTable';
@@ -70,6 +71,8 @@ function Inventory({ vehicles }: { vehicles: Vehicle[] }) {
   };
 
   const [params, setParams] = useSearchParams();
+  const location = useLocation();
+  const { isAdmin } = useAuth();
   const get = (k: ParamKey) => params.get(k) ?? DEFAULTS[k];
 
   const rawCat = get('cat');
@@ -144,6 +147,11 @@ function Inventory({ vehicles }: { vehicles: Vehicle[] }) {
           value={search}
           onChange={(e) => set('q', e.target.value)}
         />
+        {isAdmin && (
+          <Link to="/vehicles/new" state={{ from: location.pathname + location.search }} className="button add-button">
+            + Add vehicle
+          </Link>
+        )}
       </header>
 
       <nav className="tabs" aria-label="Vehicle categories">

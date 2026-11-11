@@ -6,6 +6,12 @@
   --muted: #6b7385;
   --accent: #1f5eff;
   --accent-soft: #e8efff;
+  --danger: #c62828;
+  --danger-soft: #fdecec;
+  --success: #166534;
+  --success-soft: #dcfce7;
+  --admin: #6d28d9;
+  --admin-soft: #ede9fe;
   font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   color: var(--text);
   background: var(--bg);
@@ -21,9 +27,15 @@
     --muted: #9099ab;
     --accent: #6b95ff;
     --accent-soft: #1f2a45;
+    --danger: #ff7b7b;
+    --danger-soft: #3a1d22;
+    --success: #6ee7a0;
+    --success-soft: #16301f;
+    --admin: #c4b5fd;
+    --admin-soft: #2e2350;
   }
 }
 
 * { box-sizing: border-box; }
 body { margin: 0; min-height: 100vh; background: var(--bg); }
-button, input, select { font: inherit; color: inherit; }
+button, input, select, textarea { font: inherit; color: inherit; }

@@ -20,5 +20,5 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["server", "src/types.ts"]
+  "include": ["server", "src/types.ts", "src/validation.ts"]
 }
