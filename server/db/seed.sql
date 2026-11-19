@@ -27,3 +27,28 @@ BEGIN
   SET IDENTITY_INSERT dbo.Vehicles OFF;
 END
 GO
+
+-- Luxury stock (Ferrari, Mercedes-Benz, BMW). Added row by row, skipping any stock number that
+-- already exists, so it also reaches databases seeded before these rows were added.
+INSERT INTO dbo.Vehicles (Make, Model, ModelYear, Price, Category, Condition, Mileage, Color, ColorHex, StockNumber)
+SELECT v.Make, v.Model, v.ModelYear, v.Price, v.Category, v.Condition, v.Mileage, v.Color, v.ColorHex, v.StockNumber
+FROM (VALUES
+    (N'Ferrari',       N'296 GTB',                 2023, 338900, N'Coupe',    N'Certified', 3850,  N'Rosso Corsa',             '#c8102e', 'FE23-0296'),
+    (N'Ferrari',       N'Roma',                    2024, 247500, N'Coupe',    N'New',       25,    N'Blu Pozzi',               '#1b2a4a', 'FE24-0101'),
+    (N'Ferrari',       N'F8 Tributo',              2021, 319800, N'Coupe',    N'Used',      6420,  N'Giallo Modena',           '#f2c200', 'FE21-0008'),
+    (N'Ferrari',       N'SF90 Stradale',           2022, 529000, N'Coupe',    N'Certified', 2150,  N'Bianco Avus',             '#f3f2ee', 'FE22-0090'),
+    (N'Ferrari',       N'Purosangue',              2024, 398000, N'SUV',      N'New',       40,    N'Grigio Titanio',          '#6b6e70', 'FE24-0400'),
+    (N'Mercedes-Benz', N'S 580 4MATIC',            2024, 127450, N'Sedan',    N'New',       18,    N'Obsidian Black',          '#16181c', 'MB24-0580'),
+    (N'Mercedes-Benz', N'E 450 4MATIC',            2022, 54900,  N'Sedan',    N'Used',      24310, N'Selenite Grey',           '#7d8084', 'MB22-0450'),
+    (N'Mercedes-Benz', N'AMG G 63',                2023, 189500, N'SUV',      N'Certified', 9870,  N'Polar White',             '#f1f1ee', 'MB23-0063'),
+    (N'Mercedes-Benz', N'GLE 450 4MATIC',          2024, 72350,  N'SUV',      N'New',       12,    N'Sodalite Blue',           '#23395b', 'MB24-1450'),
+    (N'Mercedes-Benz', N'EQS 580 4MATIC Sedan',    2023, 109900, N'Electric', N'Certified', 7640,  N'High-Tech Silver',        '#b9bcbf', 'MB23-2580'),
+    (N'BMW',           N'M8 Competition Coupe',    2024, 138800, N'Coupe',    N'New',       9,     N'Frozen Marina Bay Blue',  '#2b4f7a', 'BM24-0808'),
+    (N'BMW',           N'M5 Competition',          2022, 86500,  N'Sedan',    N'Used',      18760, N'Marina Bay Blue',         '#1f4f8f', 'BM22-0505'),
+    (N'BMW',           N'750i xDrive',             2021, 52800,  N'Sedan',    N'Used',      31200, N'Carbon Black',            '#1b1f2b', 'BM21-0750'),
+    (N'BMW',           N'X7 xDrive40i',            2023, 79900,  N'SUV',      N'Certified', 12480, N'Mineral White',           '#e8e7e2', 'BM23-0740'),
+    (N'BMW',           N'X5 M Competition',        2024, 124600, N'SUV',      N'New',       14,    N'Isle of Man Green',       '#1f4d3a', 'BM24-0555'),
+    (N'BMW',           N'i7 xDrive60',             2024, 124200, N'Electric', N'New',       15,    N'Oxide Grey',              '#5d5f60', 'BM24-0760')
+) AS v (Make, Model, ModelYear, Price, Category, Condition, Mileage, Color, ColorHex, StockNumber)
+WHERE NOT EXISTS (SELECT 1 FROM dbo.Vehicles x WHERE x.StockNumber = v.StockNumber);
+GO

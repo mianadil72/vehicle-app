@@ -17,7 +17,7 @@ export function LoginPage() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    document.title = 'Sign in | Vehicle Inventory';
+    document.title = 'Sign in | ONE-STOP VEHICLE SHOP DEALERSHIP';
   }, []);
 
   const onSubmit = async (e: FormEvent) => {

@@ -1,8 +1,10 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { Link, useLocation, useSearchParams } from 'react-router';
 import { fetchVehicles, useRemote } from '../api';
 import { useAuth } from '../auth';
 import { CATEGORIES, type Category, type Vehicle } from '../types';
+import { Pagination } from '../components/Pagination';
+import { PAGE_SIZES, type PageSize } from '../paging';
 import { VehicleCard } from '../components/VehicleCard';
 import { VehicleTable } from '../components/VehicleTable';
 import { RemoteStatus } from '../components/RemoteStatus';
@@ -29,13 +31,15 @@ function inventoryBounds(vehicles: Vehicle[]) {
   };
 }
 
-type ParamKey = 'cat' | 'q' | 'minYear' | 'maxPrice' | 'sort' | 'view';
+type ParamKey = 'cat' | 'q' | 'minYear' | 'maxPrice' | 'sort' | 'view' | 'page' | 'size';
+
+const count = new Intl.NumberFormat('en-US');
 
 export function InventoryPage() {
   const remote = useRemote('all', (signal) => fetchVehicles({}, signal));
 
   useEffect(() => {
-    document.title = 'Vehicle Inventory';
+    document.title = 'ONE-STOP VEHICLE SHOP DEALERSHIP';
   }, []);
 
   return remote.status === 'ready' ? (
@@ -46,7 +50,7 @@ export function InventoryPage() {
         <div className="brand">
           <span className="logo" aria-hidden>◆</span>
           <div>
-            <h1>Vehicle Inventory</h1>
+            <h1>ONE-STOP VEHICLE SHOP DEALERSHIP</h1>
             <p>Dealership stock available for sale</p>
           </div>
         </div>
@@ -68,9 +72,12 @@ function Inventory({ vehicles }: { vehicles: Vehicle[] }) {
     maxPrice: String(bounds.maxPrice),
     sort: 'price-asc',
     view: 'grid',
+    page: '1',
+    size: String(PAGE_SIZES[0]),
   };
 
   const [params, setParams] = useSearchParams();
+  const listTop = useRef<HTMLParagraphElement>(null);
   const location = useLocation();
   const { isAdmin } = useAuth();
   const get = (k: ParamKey) => params.get(k) ?? DEFAULTS[k];
@@ -82,6 +89,8 @@ function Inventory({ vehicles }: { vehicles: Vehicle[] }) {
   const maxPrice = Number(get('maxPrice')) || bounds.maxPrice;
   const sort: SortKey = SORT_KEYS.includes(get('sort') as SortKey) ? (get('sort') as SortKey) : 'price-asc';
   const view: View = get('view') === 'table' ? 'table' : 'grid';
+  const size: PageSize = PAGE_SIZES.find((n) => String(n) === get('size')) ?? PAGE_SIZES[0];
+  const requestedPage = Number(get('page'));
 
   const set = (k: ParamKey, value: string | number) =>
     setParams(
@@ -89,6 +98,8 @@ function Inventory({ vehicles }: { vehicles: Vehicle[] }) {
         const next = new URLSearchParams(prev);
         if (String(value) === DEFAULTS[k]) next.delete(k);
         else next.set(k, String(value));
+        // Any change to what's listed (filters, sort, page size) starts again at page 1.
+        if (k !== 'page' && k !== 'view') next.delete('page');
         return next;
       },
       { replace: true },
@@ -122,11 +133,23 @@ function Inventory({ vehicles }: { vehicles: Vehicle[] }) {
     return sorted;
   }, [vehicles, category, search, minYear, maxPrice, sort]);
 
+  // Paging: an out-of-range page (e.g. an old link after vehicles were sold) shows the last page.
+  const pages = Math.max(1, Math.ceil(results.length / size));
+  const page = Math.min(pages, Math.max(1, Math.trunc(requestedPage) || 1));
+  const first = (page - 1) * size;
+  const pageItems = results.slice(first, first + size);
+
+  // Moving between pages scrolls back to the top of the list (the summary line).
+  const goToPage = (p: number) => {
+    set('page', Math.min(pages, Math.max(1, p)));
+    listTop.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  };
+
   const resetFilters = () =>
     setParams((prev) => {
       const next = new URLSearchParams();
       // Keep presentation preferences, drop filters.
-      for (const k of ['sort', 'view'] as const) if (prev.has(k)) next.set(k, prev.get(k)!);
+      for (const k of ['sort', 'view', 'size'] as const) if (prev.has(k)) next.set(k, prev.get(k)!);
       return next;
     }, { replace: true });
 
@@ -136,7 +159,7 @@ function Inventory({ vehicles }: { vehicles: Vehicle[] }) {
         <div className="brand">
           <span className="logo" aria-hidden>◆</span>
           <div>
-            <h1>Vehicle Inventory</h1>
+            <h1>ONE-STOP VEHICLE SHOP DEALERSHIP</h1>
             <p>Dealership stock available for sale</p>
           </div>
         </div>
@@ -203,9 +226,22 @@ function Inventory({ vehicles }: { vehicles: Vehicle[] }) {
         </div>
       </section>
 
-      <p className="summary">
-        Showing <strong>{results.length}</strong> of {vehicles.length} vehicles
-      </p>
+      <div className="list-head">
+        <p className="summary" ref={listTop}>
+          {results.length === 0 ? (
+            <>No matches among {count.format(vehicles.length)} vehicles</>
+          ) : (
+            <>
+              Showing <strong>{count.format(first + 1)}–{count.format(first + pageItems.length)}</strong> of{' '}
+              <strong>{count.format(results.length)}</strong>
+              {results.length < vehicles.length ? ` matching (${count.format(vehicles.length)} in stock)` : ' vehicles'}
+            </>
+          )}
+        </p>
+        {results.length > 0 && (
+          <Pagination page={page} pages={pages} size={size} onPage={goToPage} onSize={(n) => set('size', n)} />
+        )}
+      </div>
 
       {results.length === 0 ? (
         <div className="empty">
@@ -214,10 +250,16 @@ function Inventory({ vehicles }: { vehicles: Vehicle[] }) {
         </div>
       ) : view === 'grid' ? (
         <div className="grid">
-          {results.map((v) => <VehicleCard key={v.id} vehicle={v} />)}
+          {pageItems.map((v) => <VehicleCard key={v.id} vehicle={v} />)}
         </div>
       ) : (
-        <VehicleTable vehicles={results} />
+        <VehicleTable vehicles={pageItems} />
+      )}
+
+      {pages > 1 && (
+        <div className="list-foot">
+          <Pagination page={page} pages={pages} size={size} onPage={goToPage} onSize={(n) => set('size', n)} showSize={false} />
+        </div>
       )}
     </>
   );

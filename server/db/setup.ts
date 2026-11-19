@@ -1,7 +1,9 @@
-// Creates the database (if missing), applies schema.sql and loads seed.sql.
+// Creates the database (if missing), applies schema.sql, loads seed.sql and the generated
+// inventory from bulkVehicles.ts.
 // Usage: npm run db:setup   (idempotent, safe to re-run)
 import { readFile } from 'node:fs/promises';
 import { DB_NAME, closePools, getPool, sql } from '../db.ts';
+import { BULK_COUNT, seedBulkVehicles } from './bulkVehicles.ts';
 
 const batches = async (file: string) =>
   (await readFile(new URL(file, import.meta.url), 'utf8'))
@@ -27,6 +29,8 @@ try {
     for (const batch of await batches(file)) await db.request().batch(batch);
     console.log(`Applied ${file}`);
   }
+  const added = await seedBulkVehicles(db);
+  console.log(`Generated inventory: ${added} added, ${BULK_COUNT - added} already present`);
 
   const { recordset } = await db.request().query<{ n: number }>('SELECT COUNT(*) AS n FROM dbo.Vehicles');
   console.log(`${recordset[0].n} vehicles in inventory`);

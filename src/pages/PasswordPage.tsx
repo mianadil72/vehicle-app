@@ -33,7 +33,7 @@ export function PasswordPage() {
   const markResolved = (userId: string) => setResolved((set) => new Set(set).add(userId));
 
   useEffect(() => {
-    document.title = 'Passwords | Vehicle Inventory';
+    document.title = 'Passwords | ONE-STOP VEHICLE SHOP DEALERSHIP';
   }, []);
 
   return (

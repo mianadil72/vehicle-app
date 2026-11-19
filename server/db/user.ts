@@ -1,6 +1,8 @@
 // Create a user, or reset an existing user's password/role.
 //
 //   npm run user -- <username> --role admin      create or reset an admin (prompts for the password)
+//   npm run user -- <username> --role manager    lead sales manager: sees and assigns all customer leads
+//   npm run user -- <username> --role sales      sales rep: follows up on the leads assigned to them
 //   npm run user -- <username> --role staff      view-only account
 //   npm run user -- <username> --deactivate      block sign-in and end their sessions
 //   npm run user -- --list                        show all accounts

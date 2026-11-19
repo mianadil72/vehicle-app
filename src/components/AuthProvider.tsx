@@ -39,7 +39,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const refresh = useCallback(() => setCheck((n) => n + 1), []);
 
   const value = useMemo<Auth>(
-    () => ({ status, user, isAdmin: user?.role === 'admin', login, logout, refresh }),
+    () => ({
+      status,
+      user,
+      isAdmin: user?.role === 'admin',
+      isLeadManager: user?.role === 'admin' || user?.role === 'manager',
+      isSalesTeam: user?.role === 'admin' || user?.role === 'manager' || user?.role === 'sales',
+      login,
+      logout,
+      refresh,
+    }),
     [status, user, login, logout, refresh],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

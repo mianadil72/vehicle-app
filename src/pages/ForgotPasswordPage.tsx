@@ -10,7 +10,7 @@ export function ForgotPasswordPage() {
   const [sent, setSent] = useState(false);
 
   useEffect(() => {
-    document.title = 'Forgot password | Vehicle Inventory';
+    document.title = 'Forgot password | ONE-STOP VEHICLE SHOP DEALERSHIP';
   }, []);
 
   const onSubmit = async (e: FormEvent) => {

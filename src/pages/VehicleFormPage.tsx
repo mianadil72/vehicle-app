@@ -84,7 +84,7 @@ function VehicleForm({ vehicle, initial, inventory }: { vehicle?: Vehicle; initi
   const cancelTo = editing ? `/vehicles/${vehicle.id}` : inventory;
 
   useEffect(() => {
-    document.title = `${title} | Vehicle Inventory`;
+    document.title = `${title} | ONE-STOP VEHICLE SHOP DEALERSHIP`;
   }, [title]);
 
   // Errors show after the first submit attempt, then update live as fields are fixed.

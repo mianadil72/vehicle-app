@@ -1,5 +1,19 @@
 import { useEffect, useState } from 'react';
-import type { Category, ResetRequest, UserSummary, Vehicle, VehicleComment } from './types';
+import type {
+  Category,
+  ChatReply,
+  ContactMethod,
+  InventoryStats,
+  Lead,
+  LeadCounts,
+  LeadSummary,
+  ResetRequest,
+  SalesRep,
+  UserSummary,
+  Vehicle,
+  VehicleComment,
+} from './types';
+import type { LeadInput } from './leadValidation';
 import type { FieldErrors, VehicleInput } from './validation';
 
 // Inventory is served by the Express API in `server/`, backed by SQL Server.
@@ -175,4 +189,83 @@ export async function createResetLink(userId: string): Promise<{ url: string; us
   );
   // The token goes in the #fragment, which browsers never send to the server or in Referer headers.
   return { url: `${window.location.origin}/reset-password#${link.token}`, username: link.username, expiresAt: link.expiresAt };
+}
+
+// --- Dashboard (signed-in users) ---------------------------------------------------------------
+
+export function fetchInventoryStats(signal?: AbortSignal): Promise<InventoryStats> {
+  return getJson<InventoryStats>('/api/stats/inventory', signal);
+}
+
+// --- Customer chat -----------------------------------------------------------------------------
+
+/** Whether the server has a Foundry agent configured; the chat widget stays hidden otherwise. */
+export async function fetchChatEnabled(signal?: AbortSignal): Promise<boolean> {
+  return (await getJson<{ enabled: boolean }>('/api/chat/status', signal)).enabled;
+}
+
+/** Sends one message. Omit `conversationId` (or pass an expired one) to start a new conversation. */
+export function sendChatMessage(message: string, conversationId?: string): Promise<ChatReply> {
+  return postJson<ChatReply>('/api/chat', { message, conversationId });
+}
+
+// --- CRM: customer leads -----------------------------------------------------------------------
+
+/** Public: a customer's enquiry. Resolves to the lead reference, e.g. "L-00042". */
+export async function submitLead(input: LeadInput, source: 'contact' | 'vehicle', website: string): Promise<string> {
+  return (await postJson<{ reference: string }>('/api/leads', { ...input, source, website })).reference;
+}
+
+export interface LeadListQuery {
+  status?: string;
+  assigned?: string;
+  overdue?: boolean;
+}
+
+export function fetchLeads(query: LeadListQuery, signal?: AbortSignal): Promise<LeadSummary[]> {
+  const params = new URLSearchParams();
+  if (query.status) params.set('status', query.status);
+  if (query.assigned) params.set('assigned', query.assigned);
+  if (query.overdue) params.set('overdue', '1');
+  const qs = params.toString();
+  return getJson<LeadSummary[]>(`/api/leads${qs ? `?${qs}` : ''}`, signal);
+}
+
+/** Resolves to `null` when the lead doesn't exist or isn't visible to the signed-in user. */
+export async function fetchLead(id: string, signal?: AbortSignal): Promise<Lead | null> {
+  const res = await fetch(`/api/leads/${encodeURIComponent(id)}`, { signal, headers: { Accept: 'application/json' } });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new ApiError(res.status, `Request failed (${res.status})`);
+  return res.json() as Promise<Lead>;
+}
+
+export function fetchLeadCounts(signal?: AbortSignal): Promise<LeadCounts> {
+  return getJson<LeadCounts>('/api/leads/counts', signal);
+}
+
+export function fetchSalesReps(signal?: AbortSignal): Promise<SalesRep[]> {
+  return getJson<SalesRep[]>('/api/sales-reps', signal);
+}
+
+export async function assignLead(id: string, userId: string): Promise<Lead> {
+  const res = await fetch(`/api/leads/${encodeURIComponent(id)}/assign`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ userId: Number(userId) }),
+  });
+  const data = (await res.json().catch(() => ({}))) as Lead & { error?: string; fields?: Record<string, string> };
+  if (!res.ok) throw new ApiError(res.status, data.error ?? `Request failed (${res.status})`, data.fields);
+  return data;
+}
+
+export function logFollowUp(id: string, method: ContactMethod, note: string): Promise<Lead> {
+  return postJson<Lead>(`/api/leads/${encodeURIComponent(id)}/follow-ups`, { method, note });
+}
+
+export function closeLead(id: string, outcome: 'Won' | 'Lost'): Promise<Lead> {
+  return postJson<Lead>(`/api/leads/${encodeURIComponent(id)}/close`, { outcome });
+}
+
+export function resendLeadNotification(id: string): Promise<Lead> {
+  return postJson<Lead>(`/api/leads/${encodeURIComponent(id)}/notify`, {});
 }

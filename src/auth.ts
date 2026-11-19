@@ -11,6 +11,10 @@ export interface Auth {
   user: User | null;
   /** True only for signed-in admins: the only users who may add, edit or delete vehicles. */
   isAdmin: boolean;
+  /** Admins and lead sales managers: see every customer lead and assign them. */
+  isLeadManager: boolean;
+  /** Admins, managers and sales reps: can open the Leads pages (reps see only their own leads). */
+  isSalesTeam: boolean;
   login: (username: string, password: string) => Promise<User>;
   logout: () => Promise<void>;
   /** Re-check the session, e.g. after the API answers 401 because it expired. */

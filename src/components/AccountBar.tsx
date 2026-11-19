@@ -1,7 +1,10 @@
 import { Link, useLocation, useNavigate } from 'react-router';
-import { fetchResetRequests, useRemote } from '../api';
+import { fetchLeadCounts, fetchResetRequests, useRemote } from '../api';
 import { useAuth } from '../auth';
 import type { NavState } from '../navigation';
+import type { Role } from '../types';
+
+const ROLE_LABELS: Record<Role, string> = { admin: 'Admin', manager: 'Sales manager', sales: 'Sales rep', staff: 'View only' };
 
 const PUBLIC_AUTH_PAGES = ['/login', '/forgot-password', '/reset-password'];
 
@@ -16,12 +19,34 @@ export function AccountBar() {
     fetchResetRequests(signal),
   );
   const pending = requests.status === 'ready' ? requests.data.length : 0;
+  // Leads needing attention: overdue follow-ups, plus (for managers) leads waiting to be assigned.
+  const leadCounts = useRemote(auth.isSalesTeam ? `lead-counts-${location.pathname}` : null, (signal) => fetchLeadCounts(signal));
+  const overdue = leadCounts.status === 'ready' ? leadCounts.data.overdue : 0;
+  const unassigned = leadCounts.status === 'ready' && auth.isLeadManager ? leadCounts.data.unassigned : 0;
+  const leadAttention = overdue + unassigned;
+  const leadBadgeText = [
+    overdue > 0 && `${overdue} overdue follow-up${overdue === 1 ? '' : 's'}`,
+    unassigned > 0 && `${unassigned} unassigned lead${unassigned === 1 ? '' : 's'}`,
+  ]
+    .filter(Boolean)
+    .join(', ');
 
   if (PUBLIC_AUTH_PAGES.includes(location.pathname) || auth.status === 'loading') return <div className="account-bar" />;
+
+  const contactLink = location.pathname !== '/contact' && !location.pathname.startsWith('/leads') && (
+    <Link
+      to="/contact"
+      state={{ from: location.pathname.startsWith('/vehicles/') ? state?.from : location.pathname + location.search } satisfies NavState}
+      className="account-link"
+    >
+      Contact us
+    </Link>
+  );
 
   if (!auth.user) {
     return (
       <div className="account-bar">
+        {contactLink}
         <Link
           to="/login"
           state={{ returnTo: location.pathname + location.search, from: state?.from } satisfies NavState}
@@ -43,10 +68,25 @@ export function AccountBar() {
     <div className="account-bar">
       <span className="account-user">
         {auth.user.username}
-        <span className={auth.isAdmin ? 'pill role-admin' : 'pill pill-neutral'}>
-          {auth.isAdmin ? 'Admin' : 'View only'}
-        </span>
+        <span className={auth.isAdmin ? 'pill role-admin' : 'pill pill-neutral'}>{ROLE_LABELS[auth.user.role]}</span>
       </span>
+      {contactLink}
+      {auth.isSalesTeam && location.pathname !== '/leads' && (
+        <Link to="/leads" className="account-link">
+          Leads
+          {leadAttention > 0 && (
+            <span className="badge" title={leadBadgeText}>
+              {leadAttention}
+              <span className="visually-hidden"> ({leadBadgeText})</span>
+            </span>
+          )}
+        </Link>
+      )}
+      {location.pathname !== '/dashboard' && (
+        <Link to="/dashboard" className="account-link">
+          Dashboard
+        </Link>
+      )}
       {auth.isAdmin && location.pathname !== '/account/password' && (
         <Link
           to="/account/password"

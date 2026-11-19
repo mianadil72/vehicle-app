@@ -1,6 +1,6 @@
 import { useState, type KeyboardEvent } from 'react';
 import type { Vehicle } from '../types';
-import { getSlides, hasRealPhotos } from '../slides';
+import { getSlides, hasRealPhotos, isPressPhoto } from '../slides';
 import { VehiclePhoto } from './VehiclePhoto';
 
 /** Render with `key={vehicle.id}` so the selected photo resets when switching vehicles. */
@@ -37,6 +37,9 @@ export function PhotoGallery({ vehicle }: { vehicle: Vehicle }) {
           {index + 1} / {slides.length} · {current.label}
         </span>
         {!hasRealPhotos(vehicle) && <span className="gallery-note">Sample image – photos coming soon</span>}
+        {current.kind === 'photo' && isPressPhoto(current.src) && (
+          <span className="gallery-note">Manufacturer photo – color and trim may differ</span>
+        )}
       </div>
 
       {slides.length > 1 && (

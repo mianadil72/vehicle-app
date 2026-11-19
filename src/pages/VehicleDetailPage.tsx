@@ -9,11 +9,15 @@ import { PhotoGallery } from '../components/PhotoGallery';
 import { RemoteStatus } from '../components/RemoteStatus';
 import { VehicleCard } from '../components/VehicleCard';
 import { VehicleComments } from '../components/VehicleComments';
+import { LeadForm } from '../components/LeadForm';
 
 export function VehicleDetailPage() {
   const { id } = useParams();
   const location = useLocation();
   const { isAdmin } = useAuth();
+  const [interestedIn, setInterestedIn] = useState<string | null>(null);
+  const interested = interestedIn !== null && interestedIn === id;
+  const setInterested = (open: boolean) => setInterestedIn(open ? (id ?? null) : null);
 
   // Unknown paths (no :id) skip loading and show the "not found" state.
   const remote = useRemote(id ?? null, (signal) => fetchVehicle(id!, signal));
@@ -36,8 +40,8 @@ export function VehicleDetailPage() {
   useEffect(() => {
     if (pending) return;
     document.title = vehicle
-      ? `${vehicle.year} ${vehicle.name} ${vehicle.model} | Vehicle Inventory`
-      : 'Vehicle not found | Vehicle Inventory';
+      ? `${vehicle.year} ${vehicle.name} ${vehicle.model} | ONE-STOP VEHICLE SHOP DEALERSHIP`
+      : 'Vehicle not found | ONE-STOP VEHICLE SHOP DEALERSHIP';
   }, [vehicle, pending]);
 
   if (pending) {
@@ -113,8 +117,20 @@ export function VehicleDetailPage() {
           </dl>
 
           {isAdmin && <VehicleActions key={v.id} vehicle={v} backTo={backTo} />}
+          <InterestedButton key={`interest-${v.id}`} open={interested} onOpen={() => setInterested(true)} />
         </aside>
       </div>
+
+      {interested && (
+        <section className="interested" id="interested" aria-label="Contact a salesperson about this vehicle">
+          <LeadForm
+            key={v.id}
+            source="vehicle"
+            vehicle={{ id: v.id, title: `${v.year} ${v.name} ${v.model}`, condition: v.condition }}
+            heading={<h2>I'm interested in this vehicle</h2>}
+          />
+        </section>
+      )}
 
       <VehicleComments key={v.id} vehicleId={v.id} />
 
@@ -127,6 +143,25 @@ export function VehicleDetailPage() {
         </section>
       )}
     </>
+  );
+}
+
+/** Opens the "I'm interested" lead form below the vehicle and scrolls to it. */
+function InterestedButton({ open, onOpen }: { open: boolean; onOpen: () => void }) {
+  const show = () => {
+    onOpen();
+    requestAnimationFrame(() => {
+      const form = document.getElementById('interested');
+      form?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      form?.querySelector<HTMLInputElement>('input')?.focus({ preventScroll: true });
+    });
+  };
+  return (
+    <div className="detail-actions">
+      <button type="button" className="button interested-button" onClick={show} aria-expanded={open} aria-controls="interested">
+        I'm interested
+      </button>
+    </div>
   );
 }
 

@@ -13,8 +13,31 @@ import {
   passwordProblem,
   recordLoginResult,
   requireAdmin,
+  requireLeadManager,
+  requireSalesTeam,
+  requireSignedIn,
   resetPassword,
 } from './auth.ts';
+import {
+  type LeadChange,
+  type LeadFilter,
+  assignLead,
+  closeLead,
+  createLead,
+  followUpProblem,
+  getLead,
+  leadCounts,
+  leadThrottle,
+  leadThrottleKey,
+  listLeads,
+  listSalesReps,
+  logFollowUp,
+} from './leads.ts';
+import { notifyNewLead, notificationsConfigured } from './notify.ts';
+import { validateLead } from '../src/leadValidation.ts';
+import { leadReference, type ContactMethod } from '../src/types.ts';
+import { CHAT_MESSAGE_MAX_LENGTH, chat, chatEnabled, chatThrottle } from './chat.ts';
+import { inventoryStats } from './stats.ts';
 import { addComment, commentProblem, deleteComment, listComments } from './comments.ts';
 import {
   checkResetLink,
@@ -334,6 +357,195 @@ app.delete('/api/vehicles/:id/comments/:commentId', requireAdmin, async (req, re
     return;
   }
   res.status(204).end();
+});
+
+// --- Dashboard (any signed-in user) -----------------------------------------------------------
+
+app.get('/api/stats/inventory', requireSignedIn, async (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json(await inventoryStats());
+});
+
+// --- CRM: customer leads -----------------------------------------------------------------------
+
+// Public. Body: LeadInput (src/leadValidation.ts) plus `source` ('contact' | 'vehicle') and the
+// `website` honeypot, which people never see or fill in. Returns 201 { reference }.
+app.post('/api/leads', async (req, res) => {
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const check = validateLead(body);
+  if (!check.ok) {
+    res.status(400).json({ error: 'Some fields are invalid', fields: check.errors });
+    return;
+  }
+  const wait = leadThrottle(leadThrottleKey(req));
+  if (wait > 0) {
+    res.status(429).setHeader('Retry-After', String(wait));
+    res.json({ error: 'We already have your details. Please wait a few minutes before sending another request.' });
+    return;
+  }
+  // A bot filled the hidden field: answer as if it worked, store nothing.
+  if (typeof body.website === 'string' && body.website.trim()) {
+    res.status(201).json({ reference: leadReference(0) });
+    return;
+  }
+  const source = body.source === 'vehicle' && check.value.vehicleId ? 'vehicle' : 'contact';
+  const id = await createLead(check.value, source);
+  void notifyNewLead(id); // not awaited: the customer doesn't wait for the mail server
+  res.status(201).json({ reference: leadReference(id) });
+});
+
+const LEAD_CHANGE_ERRORS: Record<Exclude<LeadChange, 'ok'>, [number, string]> = {
+  'not-found': [404, 'Lead not found'],
+  closed: [409, 'This lead is already closed'],
+  unassigned: [409, 'Assign this lead to a sales rep before logging follow-ups'],
+  'no-more-follow-ups': [409, 'All 3 follow-ups have been logged. Mark the lead won or lost.'],
+  'bad-assignee': [400, 'Choose an active sales rep or manager'],
+};
+
+/** Replies with the updated lead, or the error for `change`. */
+async function sendLeadChange(res: Response, id: number, change: LeadChange) {
+  if (change !== 'ok') {
+    const [status, error] = LEAD_CHANGE_ERRORS[change];
+    res.status(status).json({ error });
+    return;
+  }
+  res.json(await getLead(id, res.locals.user as User));
+}
+
+// GET /api/leads?status=open|closed|all|<status>&assigned=me|none|<userId>&overdue=1
+app.get('/api/leads', requireSalesTeam, async (req, res) => {
+  const { status, assigned, overdue } = req.query;
+  res.setHeader('Cache-Control', 'no-store');
+  res.json(
+    await listLeads(res.locals.user as User, {
+      status: typeof status === 'string' ? (status as LeadFilter['status']) : undefined,
+      assigned: typeof assigned === 'string' ? assigned : undefined,
+      overdue: overdue === '1' || overdue === 'true',
+    }),
+  );
+});
+
+app.get('/api/leads/counts', requireSalesTeam, async (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json(await leadCounts(res.locals.user as User));
+});
+
+app.get('/api/leads/:id', requireSalesTeam, async (req, res) => {
+  const id = toId(req.params.id);
+  const lead = id === undefined ? null : await getLead(id, res.locals.user as User);
+  if (!lead) {
+    res.status(404).json({ error: 'Lead not found' });
+    return;
+  }
+  res.setHeader('Cache-Control', 'no-store');
+  res.json(lead);
+});
+
+app.get('/api/sales-reps', requireLeadManager, async (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json(await listSalesReps());
+});
+
+// Body: { userId }
+app.put('/api/leads/:id/assign', requireLeadManager, async (req, res) => {
+  const id = toId(req.params.id);
+  const userId = toId((req.body as { userId?: unknown } | undefined)?.userId);
+  if (id === undefined) {
+    res.status(404).json({ error: 'Lead not found' });
+    return;
+  }
+  if (userId === undefined) {
+    res.status(400).json({ error: 'Choose a sales rep', fields: { userId: 'Choose a sales rep' } });
+    return;
+  }
+  await sendLeadChange(res, id, await assignLead(id, userId));
+});
+
+// Body: { method, note }. Logs the next follow-up (1st, 2nd, 3rd).
+app.post('/api/leads/:id/follow-ups', requireSalesTeam, async (req, res) => {
+  const id = toId(req.params.id);
+  const { method, note } = (req.body ?? {}) as { method?: unknown; note?: unknown };
+  const problems = followUpProblem(method, note);
+  if (problems) {
+    res.status(400).json({ error: 'Some fields are invalid', fields: problems });
+    return;
+  }
+  if (id === undefined) {
+    res.status(404).json({ error: 'Lead not found' });
+    return;
+  }
+  await sendLeadChange(res, id, await logFollowUp(id, res.locals.user as User, method as ContactMethod, note as string));
+});
+
+// Body: { outcome: 'Won' | 'Lost' }
+app.post('/api/leads/:id/close', requireSalesTeam, async (req, res) => {
+  const id = toId(req.params.id);
+  const { outcome } = (req.body ?? {}) as { outcome?: unknown };
+  if (outcome !== 'Won' && outcome !== 'Lost') {
+    res.status(400).json({ error: 'Outcome must be Won or Lost' });
+    return;
+  }
+  if (id === undefined) {
+    res.status(404).json({ error: 'Lead not found' });
+    return;
+  }
+  await sendLeadChange(res, id, await closeLead(id, res.locals.user as User, outcome));
+});
+
+// Sends the manager's email/text for this lead again (e.g. after fixing the SMTP settings).
+app.post('/api/leads/:id/notify', requireLeadManager, async (req, res) => {
+  const id = toId(req.params.id);
+  if (id === undefined || !(await getLead(id, null))) {
+    res.status(404).json({ error: 'Lead not found' });
+    return;
+  }
+  if (!notificationsConfigured()) {
+    res.status(409).json({ error: 'Set LEAD_MANAGER_EMAIL or LEAD_MANAGER_SMS on the server first' });
+    return;
+  }
+  await notifyNewLead(id);
+  res.json(await getLead(id, res.locals.user as User));
+});
+
+// --- Customer chat (public; answered by the Foundry agent) -------------------------------------
+
+app.get('/api/chat/status', (_req, res) => {
+  res.json({ enabled: chatEnabled() });
+});
+
+// Body: { message, conversationId? }. Returns { conversationId, reply, vehicles }.
+app.post('/api/chat', async (req, res) => {
+  if (!chatEnabled()) {
+    res.status(503).json({ error: 'The assistant is not configured' });
+    return;
+  }
+  const { message, conversationId } = (req.body ?? {}) as { message?: unknown; conversationId?: unknown };
+  if (typeof message !== 'string' || !message.trim()) {
+    res.status(400).json({ error: 'Type a message' });
+    return;
+  }
+  if (message.length > CHAT_MESSAGE_MAX_LENGTH) {
+    res.status(400).json({ error: `Keep messages under ${CHAT_MESSAGE_MAX_LENGTH} characters` });
+    return;
+  }
+  const wait = chatThrottle(req);
+  if (wait > 0) {
+    res.status(429).setHeader('Retry-After', String(wait));
+    res.json({ error: 'You are sending messages too quickly. Please wait a minute and try again.' });
+    return;
+  }
+  try {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(await chat(conversationId, message.trim(), leadThrottleKey(req)));
+  } catch (err) {
+    // Azure's content filter rejected the message (e.g. a jailbreak attempt): not an outage.
+    if ((err as { code?: unknown }).code === 'content_filter') {
+      res.status(400).json({ error: "Sorry, I can't help with that. Try asking about our vehicles, prices or availability." });
+      return;
+    }
+    console.error('Chat failed:', err);
+    res.status(502).json({ error: 'The assistant is unavailable right now. Please try again shortly.' });
+  }
 });
 
 app.use('/api', (_req, res) => {

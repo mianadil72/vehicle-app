@@ -43,12 +43,13 @@ GO
 IF OBJECT_ID(N'dbo.Users', N'U') IS NULL
 BEGIN
   -- Internal user accounts. Only 'admin' may add, edit or delete vehicles; 'staff' can view only.
-  -- Create or reset accounts with `npm run user -- <username> --role admin|staff`.
+  -- 'manager' (lead sales manager) assigns customer leads; 'sales' (rep) follows up on their leads.
+  -- Create or reset accounts with `npm run user -- <username> --role admin|manager|sales|staff`.
   CREATE TABLE dbo.Users (
     UserId        INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_Users PRIMARY KEY,
     Username      NVARCHAR(50)  NOT NULL CONSTRAINT UQ_Users_Username UNIQUE,  -- stored lower-case
     PasswordHash  VARCHAR(200)  NOT NULL,                                       -- scrypt, see server/auth.ts
-    Role          VARCHAR(10)   NOT NULL CONSTRAINT CK_Users_Role CHECK (Role IN ('admin', 'staff')),
+    Role          VARCHAR(10)   NOT NULL CONSTRAINT CK_Users_Role CHECK (Role IN ('admin', 'manager', 'sales', 'staff')),
     IsActive      BIT           NOT NULL CONSTRAINT DF_Users_IsActive DEFAULT 1,
     CreatedAt     DATETIME2(0)  NOT NULL CONSTRAINT DF_Users_CreatedAt DEFAULT SYSUTCDATETIME(),
     LastLoginAt   DATETIME2(0)  NULL
@@ -108,5 +109,140 @@ BEGIN
     ExpiresAt        DATETIME2(0) NOT NULL
   );
   CREATE INDEX IX_PasswordResetTokens_UserId ON dbo.PasswordResetTokens (UserId);
+END
+GO
+
+-- ---------------------------------------------------------------------------------------------
+-- CRM: customer leads (server/leads.ts). Roles: 'manager' (lead sales manager) and 'sales' (rep).
+-- ---------------------------------------------------------------------------------------------
+
+-- Migration for databases created before the manager/sales roles existed.
+IF EXISTS (
+  SELECT 1 FROM sys.check_constraints
+   WHERE name = N'CK_Users_Role' AND parent_object_id = OBJECT_ID(N'dbo.Users')
+     AND definition NOT LIKE N'%manager%'
+)
+BEGIN
+  ALTER TABLE dbo.Users DROP CONSTRAINT CK_Users_Role;
+  ALTER TABLE dbo.Users ADD CONSTRAINT CK_Users_Role CHECK (Role IN ('admin', 'manager', 'sales', 'staff'));
+END
+GO
+
+IF OBJECT_ID(N'dbo.Customers', N'U') IS NULL
+BEGIN
+  -- One row per email address, holding the details from the customer's first enquiry. Never updated:
+  -- each lead keeps the details it was submitted with (dbo.Leads.FirstName...ContactConsent).
+  CREATE TABLE dbo.Customers (
+    CustomerId        INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_Customers PRIMARY KEY,
+    FirstName         NVARCHAR(50)  NOT NULL,
+    LastName          NVARCHAR(50)  NOT NULL,
+    Email             NVARCHAR(254) NOT NULL CONSTRAINT UQ_Customers_Email UNIQUE,  -- stored lower-case
+    Mobile            VARCHAR(20)   NOT NULL,                                       -- digits, optional leading +
+    PreferredContact  VARCHAR(10)   NOT NULL CONSTRAINT CK_Customers_PreferredContact CHECK (PreferredContact IN ('Email', 'Text', 'Phone')),
+    ContactConsent    BIT           NOT NULL CONSTRAINT DF_Customers_ContactConsent DEFAULT 0,
+    CreatedAt         DATETIME2(0)  NOT NULL CONSTRAINT DF_Customers_CreatedAt DEFAULT SYSUTCDATETIME()
+  );
+END
+GO
+
+IF OBJECT_ID(N'dbo.Leads', N'U') IS NULL
+BEGIN
+  -- A customer's enquiry. NextFollowUpDue is 2 days after the lead arrives for the 1st follow-up,
+  -- then 2 days after each logged follow-up; NULL when unassigned, after the 3rd, or once closed.
+  -- FirstName...ContactConsent are the contact details as submitted with this enquiry.
+  CREATE TABLE dbo.Leads (
+    LeadId             INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_Leads PRIMARY KEY,
+    CustomerId         INT            NOT NULL CONSTRAINT FK_Leads_Customers REFERENCES dbo.Customers (CustomerId) ON DELETE CASCADE,
+    FirstName          NVARCHAR(50)   NOT NULL,
+    LastName           NVARCHAR(50)   NOT NULL,
+    Email              NVARCHAR(254)  NOT NULL,
+    Mobile             VARCHAR(20)    NOT NULL,
+    PreferredContact   VARCHAR(10)    NOT NULL CONSTRAINT CK_Leads_PreferredContact CHECK (PreferredContact IN ('Email', 'Text', 'Phone')),
+    ContactConsent     BIT            NOT NULL CONSTRAINT DF_Leads_ContactConsent DEFAULT 0,
+    VehicleId          INT            NULL CONSTRAINT FK_Leads_Vehicles REFERENCES dbo.Vehicles (VehicleId) ON DELETE SET NULL,
+    InterestCondition  NVARCHAR(20)   NOT NULL CONSTRAINT CK_Leads_InterestCondition CHECK (InterestCondition IN ('New', 'Used', 'Certified')),
+    UrgencyDays        INT            NOT NULL CONSTRAINT CK_Leads_UrgencyDays CHECK (UrgencyDays BETWEEN 1 AND 365),
+    Message            NVARCHAR(1000) NULL,
+    Source             VARCHAR(10)    NOT NULL CONSTRAINT CK_Leads_Source CHECK (Source IN ('contact', 'vehicle', 'chat')),
+    Status             VARCHAR(20)    NOT NULL CONSTRAINT DF_Leads_Status DEFAULT 'New'
+                         CONSTRAINT CK_Leads_Status CHECK (Status IN ('New', 'Assigned', 'FirstFollowUp', 'SecondFollowUp', 'ThirdFollowUp', 'Won', 'Lost')),
+    AssignedToUserId   INT            NULL CONSTRAINT FK_Leads_AssignedTo REFERENCES dbo.Users (UserId),
+    AssignedAt         DATETIME2(0)   NULL,
+    NextFollowUpDue    DATETIME2(0)   NULL,
+    CreatedAt          DATETIME2(0)   NOT NULL CONSTRAINT DF_Leads_CreatedAt DEFAULT SYSUTCDATETIME(),
+    ClosedAt           DATETIME2(0)   NULL
+  );
+  CREATE INDEX IX_Leads_Status_Due ON dbo.Leads (Status, NextFollowUpDue);
+  CREATE INDEX IX_Leads_AssignedTo ON dbo.Leads (AssignedToUserId);
+  CREATE INDEX IX_Leads_CustomerId ON dbo.Leads (CustomerId);
+END
+GO
+
+-- Migration: databases whose dbo.Leads predates the per-lead contact details. Add the columns (nullable),
+-- fill existing leads from their customer, then make them NOT NULL.
+IF COL_LENGTH(N'dbo.Leads', N'FirstName') IS NULL ALTER TABLE dbo.Leads ADD FirstName NVARCHAR(50) NULL;
+IF COL_LENGTH(N'dbo.Leads', N'LastName') IS NULL ALTER TABLE dbo.Leads ADD LastName NVARCHAR(50) NULL;
+IF COL_LENGTH(N'dbo.Leads', N'Email') IS NULL ALTER TABLE dbo.Leads ADD Email NVARCHAR(254) NULL;
+IF COL_LENGTH(N'dbo.Leads', N'Mobile') IS NULL ALTER TABLE dbo.Leads ADD Mobile VARCHAR(20) NULL;
+IF COL_LENGTH(N'dbo.Leads', N'PreferredContact') IS NULL ALTER TABLE dbo.Leads ADD PreferredContact VARCHAR(10) NULL;
+IF COL_LENGTH(N'dbo.Leads', N'ContactConsent') IS NULL
+  ALTER TABLE dbo.Leads ADD ContactConsent BIT NOT NULL CONSTRAINT DF_Leads_ContactConsent DEFAULT 0;
+GO
+
+UPDATE l
+   SET FirstName = COALESCE(l.FirstName, c.FirstName), LastName = COALESCE(l.LastName, c.LastName),
+       Email = COALESCE(l.Email, c.Email), Mobile = COALESCE(l.Mobile, c.Mobile),
+       PreferredContact = COALESCE(l.PreferredContact, c.PreferredContact)
+  FROM dbo.Leads l
+  JOIN dbo.Customers c ON c.CustomerId = l.CustomerId
+ WHERE l.FirstName IS NULL OR l.LastName IS NULL OR l.Email IS NULL OR l.Mobile IS NULL OR l.PreferredContact IS NULL;
+GO
+
+IF COLUMNPROPERTY(OBJECT_ID(N'dbo.Leads'), N'FirstName', 'AllowsNull') = 1
+BEGIN
+  ALTER TABLE dbo.Leads ALTER COLUMN FirstName NVARCHAR(50) NOT NULL;
+  ALTER TABLE dbo.Leads ALTER COLUMN LastName NVARCHAR(50) NOT NULL;
+  ALTER TABLE dbo.Leads ALTER COLUMN Email NVARCHAR(254) NOT NULL;
+  ALTER TABLE dbo.Leads ALTER COLUMN Mobile VARCHAR(20) NOT NULL;
+  ALTER TABLE dbo.Leads ALTER COLUMN PreferredContact VARCHAR(10) NOT NULL;
+END
+IF OBJECT_ID(N'dbo.CK_Leads_PreferredContact', N'C') IS NULL
+  ALTER TABLE dbo.Leads ADD CONSTRAINT CK_Leads_PreferredContact CHECK (PreferredContact IN ('Email', 'Text', 'Phone'));
+GO
+
+IF OBJECT_ID(N'dbo.LeadFollowUps', N'U') IS NULL
+BEGIN
+  -- The 1st, 2nd and 3rd follow-up logged by a sales rep.
+  CREATE TABLE dbo.LeadFollowUps (
+    FollowUpId  INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_LeadFollowUps PRIMARY KEY,
+    LeadId      INT            NOT NULL CONSTRAINT FK_LeadFollowUps_Leads REFERENCES dbo.Leads (LeadId) ON DELETE CASCADE,
+    Number      TINYINT        NOT NULL CONSTRAINT CK_LeadFollowUps_Number CHECK (Number BETWEEN 1 AND 3),
+    UserId      INT            NOT NULL CONSTRAINT FK_LeadFollowUps_Users REFERENCES dbo.Users (UserId),
+    Method      VARCHAR(10)    NOT NULL CONSTRAINT CK_LeadFollowUps_Method CHECK (Method IN ('Email', 'Text', 'Phone')),
+    Note        NVARCHAR(1000) NOT NULL,
+    CreatedAt   DATETIME2(0)   NOT NULL CONSTRAINT DF_LeadFollowUps_CreatedAt DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT UQ_LeadFollowUps_LeadNumber UNIQUE (LeadId, Number)
+  );
+END
+GO
+
+IF OBJECT_ID(N'dbo.LeadNotifications', N'U') IS NULL
+BEGIN
+  -- Email/text messages about a lead (outbox + audit). 'Logged' = SMTP isn't configured, so the
+  -- message was only written to the server console.
+  CREATE TABLE dbo.LeadNotifications (
+    NotificationId  INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_LeadNotifications PRIMARY KEY,
+    LeadId          INT            NOT NULL CONSTRAINT FK_LeadNotifications_Leads REFERENCES dbo.Leads (LeadId) ON DELETE CASCADE,
+    Channel         VARCHAR(5)     NOT NULL CONSTRAINT CK_LeadNotifications_Channel CHECK (Channel IN ('email', 'sms')),
+    Recipient       NVARCHAR(254)  NOT NULL,
+    Subject         NVARCHAR(200)  NOT NULL,
+    Body            NVARCHAR(4000) NOT NULL,
+    Status          VARCHAR(10)    NOT NULL CONSTRAINT DF_LeadNotifications_Status DEFAULT 'Pending'
+                      CONSTRAINT CK_LeadNotifications_Status CHECK (Status IN ('Pending', 'Sent', 'Failed', 'Logged')),
+    Error           NVARCHAR(500)  NULL,
+    CreatedAt       DATETIME2(0)   NOT NULL CONSTRAINT DF_LeadNotifications_CreatedAt DEFAULT SYSUTCDATETIME(),
+    SentAt          DATETIME2(0)   NULL
+  );
+  CREATE INDEX IX_LeadNotifications_LeadId ON dbo.LeadNotifications (LeadId);
 END
 GO

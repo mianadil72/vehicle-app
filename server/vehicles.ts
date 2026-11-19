@@ -101,7 +101,7 @@ export async function getVehicle(id: number): Promise<Vehicle | null> {
 }
 
 /** Runs `work` in a transaction: commits when it resolves, rolls back when it throws. */
-async function inTransaction<T>(pool: ConnectionPool, work: (tx: Transaction) => Promise<T>): Promise<T> {
+export async function inTransaction<T>(pool: ConnectionPool, work: (tx: Transaction) => Promise<T>): Promise<T> {
   const mssql = await sql();
   const tx = new mssql.Transaction(pool);
   await tx.begin();

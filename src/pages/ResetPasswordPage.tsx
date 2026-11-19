@@ -11,7 +11,7 @@ export function ResetPasswordPage() {
   const link = useRemote(token ? `reset-${token}` : null, () => checkResetLink(token));
 
   useEffect(() => {
-    document.title = 'Reset password | Vehicle Inventory';
+    document.title = 'Reset password | ONE-STOP VEHICLE SHOP DEALERSHIP';
   }, []);
 
   // Network trouble gets a retry; a 400 means the link itself is bad.

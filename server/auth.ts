@@ -137,6 +137,17 @@ export async function currentUser(req: Request): Promise<User | null> {
   return recordset[0] ? toUser(recordset[0]) : null;
 }
 
+/** Middleware: any signed-in user (any role) may continue. 401 when signed out. */
+export async function requireSignedIn(req: Request, res: Response, next: NextFunction) {
+  const user = await currentUser(req);
+  if (!user) {
+    res.status(401).json({ error: 'Sign in to view this page' });
+    return;
+  }
+  res.locals.user = user;
+  next();
+}
+
 /** Middleware: only signed-in admins may continue. 401 when signed out, 403 for other roles. */
 export async function requireAdmin(req: Request, res: Response, next: NextFunction) {
   const user = await currentUser(req);
@@ -151,6 +162,34 @@ export async function requireAdmin(req: Request, res: Response, next: NextFuncti
   res.locals.user = user;
   next();
 }
+
+/**
+ * Middleware factory: only signed-in users with one of `roles` may continue (401 signed out, 403
+ * otherwise). The user is put in `res.locals.user`.
+ */
+export function requireRole(roles: readonly Role[], forbidden: string) {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    const user = await currentUser(req);
+    if (!user) {
+      res.status(401).json({ error: 'Sign in to continue' });
+      return;
+    }
+    if (!roles.includes(user.role)) {
+      res.status(403).json({ error: forbidden });
+      return;
+    }
+    res.locals.user = user;
+    next();
+  };
+}
+
+/** Roles that work customer leads: admins, the lead sales manager and sales reps. */
+export const SALES_TEAM_ROLES: readonly Role[] = ['admin', 'manager', 'sales'];
+/** Roles that see every lead and assign them: admins and the lead sales manager. */
+export const LEAD_MANAGER_ROLES: readonly Role[] = ['admin', 'manager'];
+
+export const requireSalesTeam = requireRole(SALES_TEAM_ROLES, 'Only the sales team can view customer leads');
+export const requireLeadManager = requireRole(LEAD_MANAGER_ROLES, 'Only a sales manager can do that');
 
 // ---------------------------------------------------------------------------------------------
 // Login throttling: after 5 failures for the same username + IP, wait 15 minutes.
