@@ -129,8 +129,8 @@ export function LeadsPage() {
             </p>
             <Pagination page={page} pages={pages} size={size} onPage={(p) => set('page', p)} onSize={(n) => set('size', n)} />
           </div>
-          <div className="table-wrap">
-            <table>
+          <div className="table-wrap table-cards-wrap">
+            <table className="table-cards">
               <thead>
                 <tr>
                   <th>Lead</th>
@@ -147,20 +147,25 @@ export function LeadsPage() {
               <tbody>
                 {rows.map((l) => (
                   <tr key={l.id}>
-                    <td>
-                      <Link to={`/leads/${l.id}`} state={{ from }} className="row-link mono">{leadReference(l.id)}</Link>
+                    <td className="cell-title">
+                      <Link to={`/leads/${l.id}`} state={{ from }} className="row-link">
+                        <span className="mono">{leadReference(l.id)}</span>
+                        <span className="cards-only"> · {l.customerName}</span>
+                      </Link>
                     </td>
-                    <td className="strong">{l.customerName}</td>
-                    <td>
+                    <td data-label="Customer" className="strong cards-hide">{l.customerName}</td>
+                    <td data-label="Looking for">
                       <span className={`pill cond-${l.interestCondition.toLowerCase()}`}>{l.interestCondition}</span>
                       {l.vehicle && <span className="lead-vehicle"> {l.vehicle.title}</span>}
                     </td>
-                    <td>{formatUrgency(l.urgencyDays)}</td>
-                    <td>{l.preferredContact}</td>
-                    <td><LeadStatusPill status={l.status} /></td>
-                    {auth.isLeadManager && <td>{l.assignedTo?.username ?? <span className="muted">Unassigned</span>}</td>}
-                    <td><NextDue lead={l} /></td>
-                    <td><time dateTime={l.createdAt}>{formatDateTime(l.createdAt)}</time></td>
+                    <td data-label="Buying">{formatUrgency(l.urgencyDays)}</td>
+                    <td data-label="Contact by">{l.preferredContact}</td>
+                    <td data-label="Status"><LeadStatusPill status={l.status} /></td>
+                    {auth.isLeadManager && (
+                      <td data-label="Assigned to">{l.assignedTo?.username ?? <span className="muted">Unassigned</span>}</td>
+                    )}
+                    <td data-label="Next follow-up"><NextDue lead={l} /></td>
+                    <td data-label="Received"><time dateTime={l.createdAt}>{formatDateTime(l.createdAt)}</time></td>
                   </tr>
                 ))}
               </tbody>

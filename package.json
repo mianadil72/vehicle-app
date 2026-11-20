@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:lan": "vite --host",
+    "icons": "node scripts/icons.ts",
     "dev:api": "node --env-file-if-exists=.env server/dev.ts",
     "db:setup": "node --env-file-if-exists=.env server/db/setup.ts",
     "db:photos": "node --env-file-if-exists=.env server/db/photos.ts",

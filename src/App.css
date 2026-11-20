@@ -1,4 +1,8 @@
-.app { max-width: 1240px; margin: 0 auto; padding: 24px 16px 48px; }
+.app {
+  max-width: 1240px; margin: 0 auto;
+  /* Clear the notch (landscape) and home indicator on phones; plain 16px elsewhere. */
+  padding: calc(24px + var(--safe-top)) max(16px, var(--safe-right)) calc(48px + var(--safe-bottom)) max(16px, var(--safe-left));
+}
 
 /* Header */
 .topbar { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; justify-content: space-between; margin-bottom: 20px; }
@@ -34,7 +38,11 @@
 /* Grid of cards */
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
 .card { display: block; color: inherit; text-decoration: none; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; transition: transform .15s, box-shadow .15s, border-color .15s; }
-.card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.08); border-color: var(--accent); }
+/* Lift only with a real hover (mouse/trackpad); on touch it would stick after a tap. */
+@media (hover: hover) {
+  .card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.08); border-color: var(--accent); }
+}
+.card:active { border-color: var(--accent); }
 .card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .card-media { position: relative; aspect-ratio: 2 / 1; background: var(--border); }
 .card-image { display: block; width: 100%; height: 100%; object-fit: cover; }
@@ -61,7 +69,9 @@ table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 th, td { padding: 11px 14px; text-align: left; white-space: nowrap; border-bottom: 1px solid var(--border); }
 th { font-size: 0.75rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
 tbody tr:last-child td { border-bottom: 0; }
-tbody tr:hover { background: var(--accent-soft); }
+@media (hover: hover) {
+  tbody tr:hover { background: var(--accent-soft); }
+}
 .num { text-align: right; font-variant-numeric: tabular-nums; }
 .strong { font-weight: 700; }
 .mono { font-family: ui-monospace, Consolas, monospace; font-size: 0.82rem; }
@@ -332,12 +342,8 @@ tfoot td { border-top: 2px solid var(--border); border-bottom: 0; }
 @media (max-width: 640px) {
   .bar-row { grid-template-columns: 70px minmax(0, 1fr); }
   .bar-tip { left: 8px; }
-  .chat { right: 16px; left: 16px; bottom: 16px; width: auto; max-width: none; height: min(560px, calc(100vh - 32px)); }
-  .chat-launcher { right: 16px; bottom: 16px; }
-  .chat-max { top: 8px; left: 8px; right: 8px; bottom: 8px; height: auto; }
-  .chat-bar { right: 16px; bottom: 16px; }
   .list-head { flex-direction: column; align-items: flex-start; }
-  .pager-btn { min-width: 32px; height: 32px; padding: 0 8px; }
+  /* Chat, pager and other phone rules: see "Touch and small screens" at the end. */
 }
 
 /* CRM: lead form (contact page and "I'm interested") */
@@ -363,7 +369,7 @@ tfoot td { border-top: 2px solid var(--border); border-bottom: 0; }
 .chip.active { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
 .chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .check { display: flex !important; flex-direction: row !important; align-items: flex-start; gap: 10px; font-size: 0.88rem !important; font-weight: 400 !important; color: var(--text) !important; cursor: pointer; }
-.check input { width: auto !important; margin: 3px 0 0; accent-color: var(--accent); }
+.check input { flex: none; width: 16px !important; height: 16px; margin: 3px 0 0; accent-color: var(--accent); }
 .toolbar .check { align-self: center; }
 .lead-done { padding: 24px; background: var(--success-soft); border: 1px solid var(--success); border-radius: 14px; color: var(--text); }
 .lead-done h2 { margin: 0 0 6px; color: var(--success); }
@@ -418,4 +424,132 @@ tfoot td { border-top: 2px solid var(--border); border-bottom: 0; }
 @media (max-width: 860px) {
   .lead-layout { grid-template-columns: 1fr; }
   .lead-next { align-items: flex-start; }
+}
+
+/* =============================================================================================
+   Touch and small screens (phones, tablets)
+   Widths: 860px = one column (phone landscape, iPad portrait), 640px = phone (PHONE_QUERY in
+   src/media.ts). Touch rules key off capability (pointer/hover), not width, so an iPad with a
+   trackpad gets hover effects and a touchscreen laptop gets big targets.
+   ============================================================================================= */
+
+/* Elements that only exist for one layout. */
+.cards-only, .pager-status, .account-menu-toggle { display: none; }
+.account-links { display: contents; }
+
+/* Long emails, URLs and notes never widen the page. */
+.detail-specs dd, .comment-body, .notification-list, .lead-done, .chat-text, .reset-link p { overflow-wrap: anywhere; }
+
+@media (pointer: coarse) {
+  /* iOS Safari zooms into any field with text under 16px. */
+  input:not([type='checkbox'], [type='radio'], [type='range'], [type='color']), select, textarea { font-size: max(16px, 1em) !important; }
+
+  /* Touch targets at least 44×44px (Apple HIG; ~48dp on Android). */
+  .button, .view-toggle button, .chip, .choice, .tab, .kpi-button, .chat-send { min-height: 44px; }
+  .pager-btn { min-width: 44px; height: 44px; }
+  .chat-icon { width: 40px; height: 40px; }
+  .gallery-nav { width: 44px; height: 44px; }
+  .notice-close { min-width: 44px; min-height: 44px; }
+  .account-link { padding-top: 10px; padding-bottom: 10px; }
+  .row-link, .link-danger, .forgot-link { display: inline-block; padding-top: 8px; padding-bottom: 8px; }
+  .chat-chip { padding: 10px 14px; }
+  .check input, .choice input { width: 22px !important; height: 22px; }
+  .check { min-height: 44px; align-items: center; }
+  .check input { margin-top: 0; }
+  .breadcrumb a { display: inline-block; padding: 12px 0; }
+  .breadcrumb { margin-top: -12px; }
+  .toolbar input[type='range'] { height: 32px; }
+}
+
+@media (hover: none) {
+  /* Tooltips need hover; the same figures are in the table below the chart. */
+  .bar-tip { display: none !important; }
+}
+
+@media (max-width: 640px) {
+  .breadcrumb { margin-bottom: 12px; }
+  .vehicle-form, .panel { padding: 16px; }
+
+  /* Header and filters stack full width. */
+  .topbar { gap: 12px; }
+  .search { order: 3; flex-basis: 100%; max-width: none; }
+  .toolbar { flex-direction: column; align-items: stretch; gap: 12px; }
+  .toolbar label, .toolbar select, .toolbar .range { width: 100%; min-width: 0; }
+  .toolbar .check { align-self: flex-start; }
+  .view-toggle { align-self: flex-start; }
+
+  /* Forms: one column, full-width buttons with the primary action first. */
+  .form-actions { flex-direction: column; align-items: stretch; }
+  .form-actions .button { width: 100%; }
+  .choices .choice { flex: 1 1 auto; justify-content: center; }
+  .request-actions { width: 100%; }
+  .request-actions .button { flex: 1 1 0; }
+
+  /* Pager: "‹ Prev  Page 2 of 9  Next ›" instead of numbered buttons. */
+  .pager { width: 100%; justify-content: space-between; }
+  .pager-pages { flex-wrap: nowrap; }
+  .pager-num { display: none; }
+  .pager-status { display: flex; align-items: center; padding: 0 8px; color: var(--muted); font-size: 0.85rem; white-space: nowrap; }
+
+  /* Gallery: thumbnails become a swipeable strip. */
+  .detail { gap: 16px; }
+  .detail-title { font-size: 1.35rem; }
+  .gallery-main { border-radius: 10px; }
+  .gallery-thumbs { display: flex; gap: 8px; overflow-x: auto; scroll-snap-type: x mandatory; padding-bottom: 4px; -webkit-overflow-scrolling: touch; }
+  .gallery-thumbs .thumb { flex: 0 0 96px; scroll-snap-align: start; }
+
+  /* Lead page: customer details one per row (emails and vehicle titles are long). */
+  .lead-specs { grid-template-columns: 1fr; }
+  .lead-specs dd { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+  .lead-head { margin-bottom: 14px; }
+
+  /* KPI cards two across. */
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .kpi-hero { grid-column: 1 / -1; }
+  .kpi-value { font-size: 1.3rem; }
+  .kpi-hero .kpi-value { font-size: 1.8rem; }
+
+  /* Account bar: signed-in links collapse into a "Menu" dropdown (AccountBar.tsx). */
+  .account-bar { position: relative; margin-top: 0; }
+  .account-menu-toggle { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 6px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font-weight: 600; cursor: pointer; }
+  .account-menu-toggle .badge { margin-left: 2px; }
+  .account-links { display: none; }
+  .account-links.open { position: absolute; top: calc(100% + 6px); right: 0; z-index: 60; display: flex; flex-direction: column; min-width: 220px; padding: 6px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 12px 32px rgba(0,0,0,0.18); }
+  .account-links.open .account-link { display: flex; align-items: center; justify-content: space-between; padding: 12px; border-radius: 8px; text-align: left; }
+  .account-links.open .account-link:hover { background: var(--accent-soft); text-decoration: none; }
+
+  /* Tables become one card per row; cells are labelled from data-label. */
+  .table-cards-wrap { overflow: visible; background: none; border: 0; border-radius: 0; }
+  .table-cards, .table-cards tbody { display: block; }
+  .table-cards thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .table-cards tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; margin-bottom: 10px; padding: 12px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+  .table-cards td { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; padding: 0; border: 0; white-space: normal; text-align: left; }
+  .table-cards td[data-label]::before { content: attr(data-label); color: var(--muted); font-size: 0.7rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+  .table-cards td.cell-title { grid-column: 1 / -1; font-size: 1rem; }
+  .table-cards .cards-only { display: inline; }
+  .table-cards .cards-hide { display: none; }
+
+  /* Chat: a full-screen sheet. --chat-vh/--chat-top track the visual viewport (keyboard), see ChatWidget.tsx. */
+  .chat, .chat-max {
+    top: var(--chat-top, 0px); right: 0; bottom: auto; left: 0;
+    width: 100%; max-width: none; height: 100vh; height: var(--chat-vh, 100dvh); max-height: none;
+    border: 0; border-radius: 0; transition: none;
+  }
+  .chat-head { padding: calc(10px + var(--safe-top)) max(12px, var(--safe-right)) 10px max(12px, var(--safe-left)); }
+  .chat-form { padding: 10px max(12px, var(--safe-right)) calc(10px + var(--safe-bottom)) max(12px, var(--safe-left)); }
+  .chat-max .chat-log { padding: 14px; }
+  .chat-max .chat-msg { max-width: 88%; }
+  .chat-max .chat-vehicles { display: flex; }
+  .chat-max .chat-form, .chat-max .chat-suggestions { padding-left: max(12px, var(--safe-left)); padding-right: max(12px, var(--safe-right)); }
+  .chat-max-toggle { display: none; }
+  .chat-launcher { right: max(16px, var(--safe-right)); bottom: calc(16px + var(--safe-bottom)); }
+  .chat-bar { right: max(12px, var(--safe-right)); bottom: calc(12px + var(--safe-bottom)); left: max(12px, var(--safe-left)); width: auto; }
+
+  /* Vehicle page: sticky "I'm interested" bar once the summary button scrolls away. */
+  .sticky-cta { position: fixed; right: 0; bottom: 0; left: 0; z-index: 40; display: flex; align-items: center; gap: 12px; padding: 10px max(16px, var(--safe-right)) calc(10px + var(--safe-bottom)) max(16px, var(--safe-left)); background: var(--surface); border-top: 1px solid var(--border); box-shadow: 0 -6px 20px rgba(0,0,0,0.08); }
+  .sticky-cta-text { display: flex; flex: 1; flex-direction: column; min-width: 0; }
+  .sticky-cta-title { overflow: hidden; color: var(--muted); font-size: 0.8rem; text-overflow: ellipsis; white-space: nowrap; }
+  .sticky-cta .button { flex: none; margin-top: 0; }
+  .app:has(.sticky-cta) { padding-bottom: calc(110px + var(--safe-bottom)); }
+  body:has(.sticky-cta) .chat-launcher, body:has(.sticky-cta) .chat-bar { bottom: calc(84px + var(--safe-bottom)); }
 }

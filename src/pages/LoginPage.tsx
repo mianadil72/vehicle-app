@@ -79,6 +79,7 @@ export function LoginPage() {
               name="username"
               autoComplete="username"
               autoCapitalize="none"
+              autoCorrect="off"
               spellCheck={false}
               maxLength={50}
               value={username}

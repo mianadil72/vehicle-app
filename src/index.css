@@ -16,6 +16,16 @@
   color: var(--text);
   background: var(--bg);
   -webkit-font-smoothing: antialiased;
+  /* Native controls (selects, scrollbars, date pickers) follow the theme. */
+  color-scheme: light dark;
+  /* Stop iOS enlarging text in landscape. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  /* Safe areas (notch, home indicator); 0 on devices without them. */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -37,5 +47,10 @@
 }
 
 * { box-sizing: border-box; }
-body { margin: 0; min-height: 100vh; background: var(--bg); }
+body { margin: 0; min-height: 100vh; min-height: 100dvh; background: var(--bg); }
 button, input, select, textarea { font: inherit; color: inherit; }
+img, svg { max-width: 100%; }
+/* No double-tap-to-zoom delay on taps. */
+a, button, input, select, textarea, label, summary { touch-action: manipulation; }
+/* Locked while a full-screen panel (the chat on phones) is open. */
+body.scroll-locked { overflow: hidden; }

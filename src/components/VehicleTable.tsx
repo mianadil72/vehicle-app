@@ -6,8 +6,9 @@ export function VehicleTable({ vehicles }: { vehicles: Vehicle[] }) {
   const location = useLocation();
   const from = location.pathname + location.search;
   return (
-    <div className="table-wrap">
-      <table>
+    <div className="table-wrap table-cards-wrap">
+      {/* On phones, .table-cards shows each row as a card, labelling cells with data-label. */}
+      <table className="table-cards">
         <thead>
           <tr>
             <th>Name</th>
@@ -23,18 +24,21 @@ export function VehicleTable({ vehicles }: { vehicles: Vehicle[] }) {
         <tbody>
           {vehicles.map((v) => (
             <tr key={v.id}>
-              <td>
-                <Link to={`/vehicles/${v.id}`} state={{ from }} className="row-link">{v.name}</Link>
+              <td className="cell-title">
+                <Link to={`/vehicles/${v.id}`} state={{ from }} className="row-link">
+                  {v.name}
+                  <span className="cards-only"> {v.model}</span>
+                </Link>
               </td>
-              <td>{v.model}</td>
-              <td className="num">{v.year}</td>
-              <td className="num strong">{formatPrice(v.price)}</td>
-              <td>{v.category}</td>
-              <td>
+              <td data-label="Model" className="cards-hide">{v.model}</td>
+              <td data-label="Year" className="num">{v.year}</td>
+              <td data-label="Price" className="num strong">{formatPrice(v.price)}</td>
+              <td data-label="Category">{v.category}</td>
+              <td data-label="Condition">
                 <span className={`pill cond-${v.condition.toLowerCase()}`}>{v.condition}</span>
               </td>
-              <td className="num">{formatMileage(v.mileage)}</td>
-              <td className="mono">{v.stockNumber}</td>
+              <td data-label="Mileage" className="num">{formatMileage(v.mileage)}</td>
+              <td data-label="Stock #" className="mono">{v.stockNumber}</td>
             </tr>
           ))}
         </tbody>

@@ -1,7 +1,9 @@
-import { useState, type KeyboardEvent } from 'react';
+import { useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import type { Vehicle } from '../types';
 import { getSlides, hasRealPhotos, isPressPhoto } from '../slides';
 import { VehiclePhoto } from './VehiclePhoto';
+
+const SWIPE_MIN_PX = 40;
 
 /** Render with `key={vehicle.id}` so the selected photo resets when switching vehicles. */
 export function PhotoGallery({ vehicle }: { vehicle: Vehicle }) {
@@ -15,6 +17,22 @@ export function PhotoGallery({ vehicle }: { vehicle: Vehicle }) {
     else if (e.key === 'ArrowLeft') go(-1);
   };
 
+  // Swipe left/right on touch screens. `touch-action: pan-y` (CSS) leaves vertical scrolling to the
+  // browser, which cancels the pointer when the user scrolls, so only horizontal swipes reach pointerup.
+  const swipe = useRef<{ x: number; y: number } | null>(null);
+  const onPointerDown = (e: PointerEvent) => {
+    if (e.pointerType === 'mouse' || slides.length < 2) return;
+    swipe.current = { x: e.clientX, y: e.clientY };
+  };
+  const onPointerUp = (e: PointerEvent) => {
+    const start = swipe.current;
+    swipe.current = null;
+    if (!start) return;
+    const dx = e.clientX - start.x;
+    const dy = e.clientY - start.y;
+    if (Math.abs(dx) >= SWIPE_MIN_PX && Math.abs(dx) > Math.abs(dy) * 1.5) go(dx < 0 ? 1 : -1);
+  };
+
   const current = slides[index] ?? slides[0];
 
   return (
@@ -23,8 +41,11 @@ export function PhotoGallery({ vehicle }: { vehicle: Vehicle }) {
         className="gallery-main"
         tabIndex={0}
         onKeyDown={onKeyDown}
+        onPointerDown={onPointerDown}
+        onPointerUp={onPointerUp}
+        onPointerCancel={() => (swipe.current = null)}
         aria-roledescription="carousel"
-        aria-label="Vehicle photos (use arrow keys to browse)"
+        aria-label="Vehicle photos (use arrow keys or swipe to browse)"
       >
         <VehiclePhoto vehicle={vehicle} slide={current} className="gallery-image" />
         {slides.length > 1 && (

@@ -166,6 +166,8 @@ function Inventory({ vehicles }: { vehicles: Vehicle[] }) {
         <input
           className="search"
           type="search"
+          enterKeyHint="search"
+          aria-label="Search vehicles"
           placeholder="Search name, model, year or stock #"
           value={search}
           onChange={(e) => set('q', e.target.value)}

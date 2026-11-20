@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { Link, useLocation } from 'react-router';
 import { ApiError, fetchChatEnabled, sendChatMessage, useRemote } from '../api';
+import { PHONE_QUERY, useMediaQuery } from '../media';
 import { formatMileage, formatPrice } from '../format';
 import type { NavState } from '../navigation';
 import type { ChatVehicle } from '../types';
@@ -81,11 +82,40 @@ export function ChatWidget() {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' });
   }, [state.messages, sending, state.mode, state.maximized]);
 
+  const visible = enabled.status === 'ready' && enabled.data && !HIDDEN.some((re) => re.test(location.pathname));
+  const phone = useMediaQuery(PHONE_QUERY);
+  const sheet = visible && phone && state.mode === 'open';
+
   useEffect(() => {
-    if (state.mode === 'open') inputRef.current?.focus();
+    // On touch screens, focusing would pop up the keyboard over the conversation; let the user tap the field.
+    if (state.mode === 'open' && window.matchMedia('(pointer: fine)').matches) inputRef.current?.focus();
   }, [state.mode]);
 
-  if (enabled.status !== 'ready' || !enabled.data || HIDDEN.some((re) => re.test(location.pathname))) return null;
+  // Phones: the open chat is a full-screen sheet. Lock the page behind it, and track the visual viewport
+  // so the input stays above the on-screen keyboard (iOS Safari doesn't resize the layout for it).
+  useEffect(() => {
+    if (!sheet) return;
+    const root = document.documentElement;
+    const vv = window.visualViewport;
+    const update = () => {
+      if (!vv) return;
+      root.style.setProperty('--chat-vh', `${vv.height}px`);
+      root.style.setProperty('--chat-top', `${vv.offsetTop}px`);
+    };
+    document.body.classList.add('scroll-locked');
+    update();
+    vv?.addEventListener('resize', update);
+    vv?.addEventListener('scroll', update);
+    return () => {
+      document.body.classList.remove('scroll-locked');
+      vv?.removeEventListener('resize', update);
+      vv?.removeEventListener('scroll', update);
+      root.style.removeProperty('--chat-vh');
+      root.style.removeProperty('--chat-top');
+    };
+  }, [sheet]);
+
+  if (!visible) return null;
 
   const setMode = (mode: Mode) => setState((s) => ({ ...s, mode, unread: mode === 'open' ? false : s.unread }));
   const toggleMaximized = () => setState((s) => ({ ...s, maximized: !s.maximized }));
@@ -210,7 +240,13 @@ export function ChatWidget() {
               <ul className="chat-vehicles">
                 {m.vehicles.map((v) => (
                   <li key={v.id}>
-                    <Link to={`/vehicles/${v.id}`} state={from} className="chat-vehicle">
+                    <Link
+                      to={`/vehicles/${v.id}`}
+                      state={from}
+                      className="chat-vehicle"
+                      // The full-screen sheet would hide the page; shrink to the title bar so the vehicle shows.
+                      onClick={() => phone && setMode('minimized')}
+                    >
                       <span className="chat-vehicle-name">{v.year} {v.name} {v.model}</span>
                       <span className="chat-vehicle-meta">
                         <strong>{formatPrice(v.price)}</strong> · {formatMileage(v.mileage)} · {v.condition}
@@ -249,6 +285,7 @@ export function ChatWidget() {
           placeholder="Ask about our vehicles…"
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={onKeyDown}
+          enterKeyHint="send"
         />
         <button type="submit" className="button chat-send" disabled={sending || !draft.trim()}>Send</button>
       </form>

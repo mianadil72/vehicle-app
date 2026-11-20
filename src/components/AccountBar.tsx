@@ -1,3 +1,4 @@
+import { useEffect, useId, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import { fetchLeadCounts, fetchResetRequests, useRemote } from '../api';
 import { useAuth } from '../auth';
@@ -30,6 +31,29 @@ export function AccountBar() {
   ]
     .filter(Boolean)
     .join(', ');
+
+  // Phones (≤640px): the signed-in links collapse into a "Menu" dropdown.
+  // Open only on the page where it was opened, so navigating closes it.
+  const [menuOpenOn, setMenuOpenOn] = useState<string | null>(null);
+  const menuOpen = menuOpenOn === location.key;
+  const toggleMenu = () => setMenuOpenOn((current) => (current === location.key ? null : location.key));
+  const menuRef = useRef<HTMLDivElement>(null);
+  const menuId = useId();
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onPointer = (e: PointerEvent) => {
+      if (!menuRef.current?.contains(e.target as Node)) setMenuOpenOn(null);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMenuOpenOn(null);
+    };
+    document.addEventListener('pointerdown', onPointer);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('pointerdown', onPointer);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [menuOpen]);
 
   if (PUBLIC_AUTH_PAGES.includes(location.pathname) || auth.status === 'loading') return <div className="account-bar" />;
 
@@ -64,12 +88,27 @@ export function AccountBar() {
     navigate(location, { replace: true, state: { ...state, notice: 'Signed out.' } satisfies NavState });
   };
 
+  const attention = leadAttention + (auth.isAdmin ? pending : 0);
+
   return (
-    <div className="account-bar">
+    <div className="account-bar" ref={menuRef}>
       <span className="account-user">
         {auth.user.username}
         <span className={auth.isAdmin ? 'pill role-admin' : 'pill pill-neutral'}>{ROLE_LABELS[auth.user.role]}</span>
       </span>
+      <button
+        type="button"
+        className="account-menu-toggle"
+        aria-expanded={menuOpen}
+        aria-controls={menuId}
+        onClick={toggleMenu}
+      >
+        Menu
+        {attention > 0 && !menuOpen && (
+          <span className="badge" aria-hidden="true">{attention}</span>
+        )}
+      </button>
+      <div id={menuId} className={menuOpen ? 'account-links open' : 'account-links'}>
       {contactLink}
       {auth.isSalesTeam && location.pathname !== '/leads' && (
         <Link to="/leads" className="account-link">
@@ -105,6 +144,7 @@ export function AccountBar() {
       <button type="button" className="account-link" onClick={onSignOut}>
         Sign out
       </button>
+      </div>
     </div>
   );
 }

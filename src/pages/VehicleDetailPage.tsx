@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { PHONE_QUERY, useMediaQuery } from '../media';
 import type { Vehicle } from '../types';
 import { Link, useLocation, useNavigate, useParams } from 'react-router';
 import { ApiError, deleteVehicle, fetchVehicle, fetchVehicles, useRemote } from '../api';
@@ -18,6 +19,19 @@ export function VehicleDetailPage() {
   const [interestedIn, setInterestedIn] = useState<string | null>(null);
   const interested = interestedIn !== null && interestedIn === id;
   const setInterested = (open: boolean) => setInterestedIn(open ? (id ?? null) : null);
+  const showInterest = () => {
+    setInterested(true);
+    requestAnimationFrame(() => {
+      const form = document.getElementById('interested');
+      form?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      form?.querySelector<HTMLInputElement>('input')?.focus({ preventScroll: true });
+    });
+  };
+
+  // Phones: once the summary's "I'm interested" button scrolls off screen, show a sticky bottom bar.
+  const phone = useMediaQuery(PHONE_QUERY);
+  const ctaRef = useRef<HTMLDivElement>(null);
+  const [ctaOnScreen, setCtaOnScreen] = useState(true);
 
   // Unknown paths (no :id) skip loading and show the "not found" state.
   const remote = useRemote(id ?? null, (signal) => fetchVehicle(id!, signal));
@@ -36,6 +50,30 @@ export function VehicleDetailPage() {
   useEffect(() => {
     window.scrollTo(0, 0);
   }, [id]);
+
+  const vehicleId = vehicle?.id;
+  useEffect(() => {
+    if (!phone || !vehicleId) return;
+    // A scroll listener (not IntersectionObserver) so big jumps, like tapping the status bar or a restored
+    // scroll position, are handled too. Visible = the button hasn't scrolled off the top.
+    const pending = { frame: 0 };
+    const check = () => {
+      pending.frame = 0;
+      const el = ctaRef.current;
+      if (el) setCtaOnScreen(el.getBoundingClientRect().bottom > 0);
+    };
+    const schedule = () => {
+      if (!pending.frame) pending.frame = requestAnimationFrame(check);
+    };
+    schedule();
+    window.addEventListener('scroll', schedule, { passive: true });
+    window.addEventListener('resize', schedule);
+    return () => {
+      cancelAnimationFrame(pending.frame);
+      window.removeEventListener('scroll', schedule);
+      window.removeEventListener('resize', schedule);
+    };
+  }, [vehicleId, phone]);
 
   useEffect(() => {
     if (pending) return;
@@ -117,9 +155,23 @@ export function VehicleDetailPage() {
           </dl>
 
           {isAdmin && <VehicleActions key={v.id} vehicle={v} backTo={backTo} />}
-          <InterestedButton key={`interest-${v.id}`} open={interested} onOpen={() => setInterested(true)} />
+          <div className="detail-actions" ref={ctaRef}>
+            <button type="button" className="button interested-button" onClick={showInterest} aria-expanded={interested} aria-controls="interested">
+              I'm interested
+            </button>
+          </div>
         </aside>
       </div>
+
+      {phone && !ctaOnScreen && !interested && (
+        <div className="sticky-cta">
+          <div className="sticky-cta-text">
+            <span className="sticky-cta-title">{v.year} {v.name} {v.model}</span>
+            <strong>{formatPrice(v.price)}</strong>
+          </div>
+          <button type="button" className="button" onClick={showInterest}>I'm interested</button>
+        </div>
+      )}
 
       {interested && (
         <section className="interested" id="interested" aria-label="Contact a salesperson about this vehicle">
@@ -143,25 +195,6 @@ export function VehicleDetailPage() {
         </section>
       )}
     </>
-  );
-}
-
-/** Opens the "I'm interested" lead form below the vehicle and scrolls to it. */
-function InterestedButton({ open, onOpen }: { open: boolean; onOpen: () => void }) {
-  const show = () => {
-    onOpen();
-    requestAnimationFrame(() => {
-      const form = document.getElementById('interested');
-      form?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      form?.querySelector<HTMLInputElement>('input')?.focus({ preventScroll: true });
-    });
-  };
-  return (
-    <div className="detail-actions">
-      <button type="button" className="button interested-button" onClick={show} aria-expanded={open} aria-controls="interested">
-        I'm interested
-      </button>
-    </div>
   );
 }
 

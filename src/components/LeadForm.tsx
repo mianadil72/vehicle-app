@@ -126,13 +126,13 @@ export function LeadForm(props: {
       <fieldset disabled={saving}>
         <div className="form-grid">
           <Field id={id('firstName')} label="First name" error={errors.firstName}>
-            <input {...fieldProps('firstName')} autoComplete="given-name" maxLength={50} />
+            <input {...fieldProps('firstName')} autoComplete="given-name" autoCapitalize="words" enterKeyHint="next" maxLength={50} />
           </Field>
           <Field id={id('lastName')} label="Last name" error={errors.lastName}>
-            <input {...fieldProps('lastName')} autoComplete="family-name" maxLength={50} />
+            <input {...fieldProps('lastName')} autoComplete="family-name" autoCapitalize="words" enterKeyHint="next" maxLength={50} />
           </Field>
           <Field id={id('email')} label="Email address" error={errors.email}>
-            <input {...fieldProps('email')} type="email" autoComplete="email" maxLength={254} inputMode="email" />
+            <input {...fieldProps('email')} type="email" autoComplete="email" autoCapitalize="none" spellCheck={false} enterKeyHint="next" maxLength={254} inputMode="email" />
           </Field>
           <Field id={id('mobile')} label="Mobile number" error={errors.mobile}>
             <input {...fieldProps('mobile')} type="tel" autoComplete="tel" maxLength={25} placeholder="(555) 123-4567" />

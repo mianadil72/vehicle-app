@@ -29,11 +29,15 @@ export function Pagination({ page, pages, size, onPage, onSize, showSize = true 
               ‹ Prev
             </button>
           </li>
+          {/* Phones show "Page X of Y" instead of the numbered buttons (CSS). */}
+          <li className="pager-status" aria-current="page">
+            Page {page} of {pages}
+          </li>
           {pageList(page, pages).map((p, i) =>
             p === '…' ? (
-              <li key={`gap-${i}`} className="pager-gap" aria-hidden="true">…</li>
+              <li key={`gap-${i}`} className="pager-gap pager-num" aria-hidden="true">…</li>
             ) : (
-              <li key={p}>
+              <li key={p} className="pager-num">
                 <button
                   type="button"
                   className={p === page ? 'pager-btn active' : 'pager-btn'}
