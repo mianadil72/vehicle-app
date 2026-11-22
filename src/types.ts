@@ -24,6 +24,8 @@ export interface Vehicle {
    * shows generated placeholder images instead.
    */
   photos?: string[];
+  /** Omitted (Available) for vehicles listed for sale; set when a sale is pending or approved. */
+  saleStatus?: 'SalePending' | 'Sold';
 }
 
 /**
@@ -205,6 +207,118 @@ export interface SalesRep {
   username: string;
   role: Role;
   openLeads: number;
+}
+
+// --- Accounting: sales, perks, overrides, salaries ---------------------------------------------
+
+/** Available: listed for sale. SalePending: a recorded sale awaits approval. Sold: approved sale. */
+export type VehicleSaleStatus = 'Available' | 'SalePending' | 'Sold';
+
+export const SALE_STATUSES = ['Pending', 'Approved', 'Rejected', 'Voided'] as const;
+export type SaleStatus = (typeof SALE_STATUSES)[number];
+
+export interface PersonRef {
+  id: string;
+  username: string;
+}
+
+export interface Sale {
+  id: string;
+  vehicle: { id: string; title: string; stockNumber: string; condition: Condition };
+  leadId: string | null;
+  buyerName: string;
+  listPrice: number;
+  salePrice: number;
+  /** Business date, YYYY-MM-DD. */
+  saleDate: string;
+  soldBy: PersonRef & { role: Role };
+  /** The seller's manager when approved (earns the override). */
+  manager: PersonRef | null;
+  status: SaleStatus;
+  /** The seller's nth approved sale in the sale's month (fixed at approval). */
+  monthUnit: number | null;
+  /** Net perk and override from the ledger (0 after a void); null until approved. */
+  perk: number | null;
+  override: number | null;
+  notes: string | null;
+  submittedAt: string;
+  decidedBy: string | null;
+  decidedAt: string | null;
+  rejectReason: string | null;
+  voidedAt: string | null;
+  voidReason: string | null;
+  /** Whether the signed-in user may approve/reject (pending) or void (approved) it. */
+  canDecide: boolean;
+  canVoid: boolean;
+}
+
+export const EARNING_TYPES = ['Salary', 'Perk', 'Override', 'PerkReversal', 'OverrideReversal', 'Adjustment'] as const;
+export type EarningType = (typeof EARNING_TYPES)[number];
+
+export interface EarningEntry {
+  id: string;
+  type: EarningType;
+  amount: number;
+  saleId: string | null;
+  /** "2024 Toyota Camry XSE (T24-1031)" for sale-related entries. */
+  saleTitle: string | null;
+  note: string | null;
+  createdAt: string;
+  /** True for the projected salary line of an open period (not in the ledger yet). */
+  projected?: boolean;
+}
+
+export interface PayPeriod {
+  start: string;
+  end: string;
+  status: 'Open' | 'Closed';
+  closedAt: string | null;
+}
+
+export interface PayStatement {
+  user: PersonRef & { role: Role };
+  period: PayPeriod;
+  lines: EarningEntry[];
+  totals: { salary: number; perks: number; overrides: number; adjustments: number; total: number };
+  /** Open period: amounts can still change, and the salary line is projected. */
+  preview: boolean;
+}
+
+export interface WeeklyFigures {
+  units: number;
+  revenue: number;
+  perks: number;
+  overrides: number;
+  pending: number;
+  leadsAssigned: number;
+  followUps: number;
+  leadsWon: number;
+}
+
+/** `GET /api/stats/sales/weekly`. Pay figures (perks, overrides) are 0 for people whose pay the viewer can't see. */
+export interface WeeklyStats {
+  /** Mondays, oldest first. */
+  weeks: string[];
+  people: { user: PersonRef & { role: Role }; managerId: string | null; byWeek: WeeklyFigures[]; total: WeeklyFigures }[];
+  totals: WeeklyFigures[];
+}
+
+export interface CompPlan {
+  id: string;
+  effectiveFrom: string;
+  managerOverride: number;
+  tiers: { fromUnit: number; perVehicle: number }[];
+}
+
+/** A person on the compensation page (admins). */
+export interface StaffMember {
+  id: string;
+  username: string;
+  role: Role;
+  isActive: boolean;
+  manager: PersonRef | null;
+  annualSalary: number | null;
+  salaryFrom: string | null;
 }
 
 /** A "forgot password" request waiting for an admin. */

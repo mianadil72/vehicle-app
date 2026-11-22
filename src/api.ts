@@ -2,7 +2,14 @@ import { useEffect, useState } from 'react';
 import type {
   Category,
   ChatReply,
+  CompPlan,
   ContactMethod,
+  PayPeriod,
+  PayStatement,
+  Sale,
+  SaleStatus,
+  StaffMember,
+  WeeklyStats,
   InventoryStats,
   Lead,
   LeadCounts,
@@ -269,3 +276,75 @@ export function closeLead(id: string, outcome: 'Won' | 'Lost'): Promise<Lead> {
 export function resendLeadNotification(id: string): Promise<Lead> {
   return postJson<Lead>(`/api/leads/${encodeURIComponent(id)}/notify`, {});
 }
+
+// --- Accounting: sales, earnings, compensation ---------------------------------------------------
+
+async function putJson<T>(url: string, body: unknown): Promise<T> {
+  const res = await fetch(url, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = (await res.json().catch(() => ({}))) as T & { error?: string; fields?: Record<string, string> };
+  if (!res.ok) throw new ApiError(res.status, data.error ?? `Request failed (${res.status})`, data.fields);
+  return data;
+}
+
+export interface SaleDraft {
+  vehicleId: string;
+  leadId?: string | null;
+  buyerName: string;
+  salePrice: string;
+  saleDate: string;
+  notes?: string;
+}
+
+export const recordSale = (draft: SaleDraft) => postJson<Sale>('/api/sales', draft);
+
+export function fetchSales(query: { status?: SaleStatus; view?: 'mine' | 'decide' }, signal?: AbortSignal): Promise<Sale[]> {
+  const params = new URLSearchParams();
+  if (query.status) params.set('status', query.status);
+  if (query.view) params.set('view', query.view);
+  const qs = params.toString();
+  return getJson<Sale[]>(`/api/sales${qs ? `?${qs}` : ''}`, signal);
+}
+
+export const fetchPendingSaleCount = async (signal?: AbortSignal) => (await getJson<{ count: number }>('/api/sales/pending-count', signal)).count;
+
+export const fetchPerkEstimate = (saleDate: string, signal?: AbortSignal) =>
+  getJson<{ unit: number; perk: number; label: string }>(`/api/sales/estimate?saleDate=${encodeURIComponent(saleDate)}`, signal);
+
+export const approveSale = (id: string) => postJson<Sale>(`/api/sales/${encodeURIComponent(id)}/approve`, {});
+export const rejectSale = (id: string, reason: string) => postJson<Sale>(`/api/sales/${encodeURIComponent(id)}/reject`, { reason });
+export const voidSale = (id: string, reason: string) => postJson<Sale>(`/api/sales/${encodeURIComponent(id)}/void`, { reason });
+
+export const fetchPayPeriods = (signal?: AbortSignal) => getJson<{ current: string; periods: PayPeriod[] }>('/api/earnings/periods', signal);
+
+export function fetchStatement(query: { user?: string; period?: string }, signal?: AbortSignal): Promise<PayStatement> {
+  const params = new URLSearchParams();
+  if (query.user) params.set('user', query.user);
+  if (query.period) params.set('period', query.period);
+  return getJson<PayStatement>(`/api/earnings/statement?${params}`, signal);
+}
+
+export const fetchTeamStatements = (period: string, scope: 'team' | 'all', signal?: AbortSignal) =>
+  getJson<PayStatement[]>(`/api/earnings/team?period=${encodeURIComponent(period)}&scope=${scope}`, signal);
+
+export const addAdjustment = (userId: string, amount: number, note: string) =>
+  postJson<{ period: string }>('/api/earnings/adjustments', { userId: Number(userId), amount, note });
+
+export const closePayPeriod = (start: string) => postJson<PayPeriod[]>(`/api/earnings/periods/${encodeURIComponent(start)}/close`, {});
+
+export const payrollCsvUrl = (start: string) => `/api/earnings/periods/${encodeURIComponent(start)}/export.csv`;
+
+export const fetchWeeklyStats = (scope: 'me' | 'team' | 'all', weeks: number, signal?: AbortSignal) =>
+  getJson<WeeklyStats>(`/api/stats/sales/weekly?scope=${scope}&weeks=${weeks}`, signal);
+
+export const fetchStaff = (signal?: AbortSignal) => getJson<StaffMember[]>('/api/admin/staff', signal);
+export const fetchCompPlans = (signal?: AbortSignal) => getJson<CompPlan[]>('/api/admin/comp-plans', signal);
+export const createCompPlan = (plan: { effectiveFrom: string; managerOverride: number; tiers: { fromUnit: number; perVehicle: number }[] }) =>
+  postJson<CompPlan[]>('/api/admin/comp-plans', plan);
+export const setSalary = (userId: string, annualSalary: number, effectiveFrom: string) =>
+  putJson<StaffMember[]>(`/api/admin/salaries/${encodeURIComponent(userId)}`, { annualSalary, effectiveFrom });
+export const setManager = (userId: string, managerId: string | null) =>
+  putJson<StaffMember[]>(`/api/users/${encodeURIComponent(userId)}/manager`, { managerId: managerId === null ? null : Number(managerId) });

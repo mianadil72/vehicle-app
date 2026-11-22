@@ -15,7 +15,7 @@ import { LeadForm } from '../components/LeadForm';
 export function VehicleDetailPage() {
   const { id } = useParams();
   const location = useLocation();
-  const { isAdmin } = useAuth();
+  const { isAdmin, isSalesTeam } = useAuth();
   const [interestedIn, setInterestedIn] = useState<string | null>(null);
   const interested = interestedIn !== null && interestedIn === id;
   const setInterested = (open: boolean) => setInterestedIn(open ? (id ?? null) : null);
@@ -104,6 +104,7 @@ export function VehicleDetailPage() {
   }
 
   const v = vehicle;
+  const forSale = !v.saleStatus;
 
   const specs: [string, string][] = [
     ['Name', v.name],
@@ -133,6 +134,8 @@ export function VehicleDetailPage() {
           <div className="detail-pills">
             <span className="pill pill-neutral">{v.category}</span>
             <span className={`pill cond-${v.condition.toLowerCase()}`}>{v.condition}</span>
+            {v.saleStatus === 'Sold' && <span className="pill sale-sold">Sold</span>}
+            {v.saleStatus === 'SalePending' && <span className="pill sale-pending">Sale pending</span>}
           </div>
           <p className="card-year">{v.year}</p>
           <h1 className="detail-title">
@@ -155,15 +158,24 @@ export function VehicleDetailPage() {
           </dl>
 
           {isAdmin && <VehicleActions key={v.id} vehicle={v} backTo={backTo} />}
-          <div className="detail-actions" ref={ctaRef}>
-            <button type="button" className="button interested-button" onClick={showInterest} aria-expanded={interested} aria-controls="interested">
-              I'm interested
-            </button>
-          </div>
+          {forSale ? (
+            <div className="detail-actions" ref={ctaRef}>
+              <button type="button" className="button interested-button" onClick={showInterest} aria-expanded={interested} aria-controls="interested">
+                I'm interested
+              </button>
+              {isSalesTeam && (
+                <Link to={`/sales/new?vehicle=${v.id}`} className="button button-secondary">Record sale</Link>
+              )}
+            </div>
+          ) : (
+            <p className="detail-actions field-hint">
+              {v.saleStatus === 'Sold' ? 'This vehicle has been sold.' : 'A sale for this vehicle is waiting for approval.'}
+            </p>
+          )}
         </aside>
       </div>
 
-      {phone && !ctaOnScreen && !interested && (
+      {forSale && phone && !ctaOnScreen && !interested && (
         <div className="sticky-cta">
           <div className="sticky-cta-text">
             <span className="sticky-cta-title">{v.year} {v.name} {v.model}</span>

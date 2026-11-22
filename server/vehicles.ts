@@ -29,12 +29,13 @@ interface VehicleRow {
   Color: string;
   ColorHex: string;
   StockNumber: string;
+  SaleStatus: 'Available' | 'SalePending' | 'Sold';
   PhotosJson: string | null;
 }
 
 const selectVehicles = (top = '') => `
   SELECT ${top}v.VehicleId, v.Make, v.Model, v.ModelYear, v.Price, v.Category, v.Condition,
-         v.Mileage, v.Color, v.ColorHex, v.StockNumber,
+         v.Mileage, v.Color, v.ColorHex, v.StockNumber, v.SaleStatus,
          (SELECT p.Url FROM dbo.VehiclePhotos p
            WHERE p.VehicleId = v.VehicleId
            ORDER BY p.SortOrder
@@ -56,7 +57,16 @@ function toVehicle(row: VehicleRow): Vehicle {
     colorHex: row.ColorHex,
     stockNumber: row.StockNumber,
     ...(photos.length > 0 && { photos }),
+    ...(row.SaleStatus !== 'Available' && { saleStatus: row.SaleStatus }),
   };
+}
+
+/** Thrown when deleting a vehicle that has sales records (they must be kept for accounting). */
+export class VehicleHasSalesError extends Error {
+  constructor() {
+    super('This vehicle has sales records, so it can’t be deleted. Edit it instead.');
+    this.name = 'VehicleHasSalesError';
+  }
 }
 
 export interface VehicleQuery {
@@ -69,7 +79,8 @@ export interface VehicleQuery {
 export async function listVehicles(query: VehicleQuery = {}): Promise<Vehicle[]> {
   const [mssql, pool] = await Promise.all([sql(), getPool()]);
   const request = pool.request();
-  const where: string[] = [];
+  // Sold vehicles and those with a sale awaiting approval aren't for sale (inventory, similar, chat).
+  const where: string[] = ["v.SaleStatus = 'Available'"];
 
   if (query.category) {
     request.input('category', mssql.NVarChar(20), query.category);
@@ -84,7 +95,7 @@ export async function listVehicles(query: VehicleQuery = {}): Promise<Vehicle[]>
 
   const result = await request.query<VehicleRow>(
     selectVehicles(top) +
-      (where.length ? ` WHERE ${where.join(' AND ')}` : '') +
+      ` WHERE ${where.join(' AND ')}` +
       ' ORDER BY v.VehicleId',
   );
   return result.recordset.map(toVehicle);
@@ -183,9 +194,17 @@ export async function updateVehicle(id: number, input: VehicleInput): Promise<Ve
   return updated ? getVehicle(id) : null;
 }
 
-/** Returns `false` when the vehicle doesn't exist. Photos are removed by ON DELETE CASCADE. */
+/**
+ * Returns `false` when the vehicle doesn't exist. Photos are removed by ON DELETE CASCADE.
+ * Throws `VehicleHasSalesError` when it has sales records.
+ */
 export async function deleteVehicle(id: number): Promise<boolean> {
   const [mssql, pool] = await Promise.all([sql(), getPool()]);
+  const { recordset } = await pool
+    .request()
+    .input('id', mssql.Int, id)
+    .query<{ n: number }>('SELECT COUNT(*) AS n FROM dbo.Sales WHERE VehicleId = @id');
+  if (recordset[0].n > 0) throw new VehicleHasSalesError();
   const result = await pool.request().input('id', mssql.Int, id).query('DELETE FROM dbo.Vehicles WHERE VehicleId = @id');
   return result.rowsAffected[0] > 0;
 }

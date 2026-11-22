@@ -2,8 +2,8 @@
 // Imports use the `.ts` extension because Node runs this file directly on the server.
 import { CATEGORIES, CONDITIONS, type Category, type Condition, type Vehicle } from './types.ts';
 
-/** Everything except the database-assigned id. */
-export type VehicleInput = Omit<Vehicle, 'id' | 'photos'> & { photos: string[] };
+/** Everything except the database-assigned id and the sale status (set by recording/approving sales). */
+export type VehicleInput = Omit<Vehicle, 'id' | 'photos' | 'saleStatus'> & { photos: string[] };
 
 export type FieldErrors = Partial<Record<keyof VehicleInput, string>>;
 

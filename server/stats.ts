@@ -48,6 +48,7 @@ export async function inventoryStats(): Promise<InventoryStats> {
            SUM(CAST(Mileage AS BIGINT))      AS TotalMileage,
            SUM(CAST(ModelYear AS BIGINT))    AS TotalYear
       FROM dbo.Vehicles
+     WHERE SaleStatus = 'Available'
      GROUP BY Category, Condition`);
 
   const total = emptySums();

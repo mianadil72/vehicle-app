@@ -34,6 +34,34 @@ import {
   logFollowUp,
 } from './leads.ts';
 import { notifyNewLead, notificationsConfigured } from './notify.ts';
+import { parseDate, periodFor, reasonProblem, today, validatePlan, validateSale } from './accounting.ts';
+import {
+  type SaleChange,
+  approveSale,
+  estimatePerk,
+  getSale,
+  listSales,
+  pendingApprovalCount,
+  recordSale,
+  rejectSale,
+  voidSale,
+} from './sales.ts';
+import {
+  addAdjustment,
+  canSeePay,
+  closePeriod,
+  createPlan,
+  exportCsv,
+  listPeriods,
+  listPlans,
+  listStaff,
+  setManager,
+  setSalary,
+  statement,
+  teamStatements,
+  weeklyStats,
+} from './payroll.ts';
+import { SALE_STATUSES, type SaleStatus } from '../src/types.ts';
 import { validateLead } from '../src/leadValidation.ts';
 import { leadReference, type ContactMethod } from '../src/types.ts';
 import { CHAT_MESSAGE_MAX_LENGTH, chat, chatEnabled, chatThrottle } from './chat.ts';
@@ -51,6 +79,7 @@ import type { User } from '../src/types.ts';
 import { validateVehicle } from '../src/validation.ts';
 import {
   DuplicateStockNumberError,
+  VehicleHasSalesError,
   createVehicle,
   deleteVehicle,
   getVehicle,
@@ -507,6 +536,241 @@ app.post('/api/leads/:id/notify', requireLeadManager, async (req, res) => {
   res.json(await getLead(id, res.locals.user as User));
 });
 
+// --- Accounting: sales ---------------------------------------------------------------------------
+
+function sendSaleChange(res: Response, change: SaleChange, created = false) {
+  if (!change.ok) {
+    res.status(change.status).json({ error: change.error, ...(change.fields && { fields: change.fields }) });
+    return false;
+  }
+  if (created) res.status(201);
+  return true;
+}
+
+// Body: { vehicleId, leadId?, buyerName, salePrice, saleDate, notes?, soldByUserId? (admins) }
+app.post('/api/sales', requireSalesTeam, async (req, res) => {
+  const viewer = res.locals.user as User;
+  const check = validateSale(req.body);
+  if (!check.ok) {
+    res.status(400).json({ error: 'Some fields are invalid', fields: check.errors });
+    return;
+  }
+  const soldBy = (req.body as { soldByUserId?: unknown }).soldByUserId;
+  const change = await recordSale(viewer, check.value, soldBy === undefined || soldBy === null || soldBy === '' ? undefined : toId(soldBy) ?? -1);
+  if (sendSaleChange(res, change, true) && change.ok) res.json(await getSale(change.id, viewer));
+});
+
+// GET /api/sales?status=Pending&view=mine|decide
+app.get('/api/sales', requireSalesTeam, async (req, res) => {
+  const { status, view } = req.query;
+  res.setHeader('Cache-Control', 'no-store');
+  res.json(
+    await listSales(res.locals.user as User, {
+      status: (SALE_STATUSES as readonly unknown[]).includes(status) ? (status as SaleStatus) : undefined,
+      view: view === 'mine' || view === 'decide' ? view : undefined,
+    }),
+  );
+});
+
+app.get('/api/sales/pending-count', requireSalesTeam, async (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ count: await pendingApprovalCount(res.locals.user as User) });
+});
+
+// GET /api/sales/estimate?saleDate=2026-11-19: the signed-in user's perk if that sale were approved now.
+app.get('/api/sales/estimate', requireSalesTeam, async (req, res) => {
+  const saleDate = typeof req.query.saleDate === 'string' && parseDate(req.query.saleDate) ? req.query.saleDate : today();
+  res.setHeader('Cache-Control', 'no-store');
+  res.json(await estimatePerk(res.locals.user as User, saleDate));
+});
+
+app.get('/api/sales/:id', requireSalesTeam, async (req, res) => {
+  const id = toId(req.params.id);
+  const sale = id === undefined ? null : await getSale(id, res.locals.user as User);
+  if (!sale) {
+    res.status(404).json({ error: 'Sale not found' });
+    return;
+  }
+  res.setHeader('Cache-Control', 'no-store');
+  res.json(sale);
+});
+
+for (const action of ['approve', 'reject', 'void'] as const) {
+  app.post(`/api/sales/:id/${action}`, requireSalesTeam, async (req, res) => {
+    const viewer = res.locals.user as User;
+    const id = toId(req.params.id);
+    if (id === undefined) {
+      res.status(404).json({ error: 'Sale not found' });
+      return;
+    }
+    const { reason } = (req.body ?? {}) as { reason?: unknown };
+    if (action !== 'approve') {
+      const problem = reasonProblem(reason);
+      if (problem) {
+        res.status(400).json({ error: problem, fields: { reason: problem } });
+        return;
+      }
+    }
+    const change =
+      action === 'approve'
+        ? await approveSale(viewer, id)
+        : action === 'reject'
+          ? await rejectSale(viewer, id, reason as string)
+          : await voidSale(viewer, id, reason as string);
+    if (sendSaleChange(res, change)) res.json(await getSale(id, viewer));
+  });
+}
+
+// --- Accounting: earnings (pay visible to self, the person's manager, and admins) ---------------
+
+app.get('/api/earnings/periods', requireSalesTeam, async (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ current: periodFor(today()).start, periods: await listPeriods() });
+});
+
+// GET /api/earnings/statement?user=<id>&period=<YYYY-MM-DD>  (defaults: me, current period)
+app.get('/api/earnings/statement', requireSalesTeam, async (req, res) => {
+  const viewer = res.locals.user as User;
+  const userId = req.query.user === undefined ? Number(viewer.id) : toId(req.query.user);
+  const period = typeof req.query.period === 'string' ? req.query.period : periodFor(today()).start;
+  const result = userId !== undefined && parseDate(period) && (await canSeePay(viewer, userId)) ? await statement(userId, period) : null;
+  if (!result) {
+    res.status(404).json({ error: 'Statement not found' });
+    return;
+  }
+  res.setHeader('Cache-Control', 'no-store');
+  res.json(result);
+});
+
+// GET /api/earnings/team?period=&scope=team|all : managers see themselves and their reps; admins everyone.
+app.get('/api/earnings/team', requireLeadManager, async (req, res) => {
+  const viewer = res.locals.user as User;
+  const period = typeof req.query.period === 'string' && parseDate(req.query.period) ? req.query.period : periodFor(today()).start;
+  const scope = req.query.scope === 'all' && viewer.role === 'admin' ? 'all' : 'team';
+  res.setHeader('Cache-Control', 'no-store');
+  res.json(await teamStatements(viewer, period, scope));
+});
+
+// Body: { userId, amount (dollars, + or −), note }
+app.post('/api/earnings/adjustments', requireAdmin, async (req, res) => {
+  const { userId, amount, note } = (req.body ?? {}) as Record<string, unknown>;
+  const id = toId(userId);
+  const cents = typeof amount === 'number' && Number.isFinite(amount) ? Math.round(amount * 100) : NaN;
+  const fields: Record<string, string> = {};
+  if (id === undefined) fields.userId = 'Choose a person';
+  if (!Number.isFinite(cents) || cents === 0 || Math.abs(cents) > 10_000_000) fields.amount = 'Enter an amount between -$100,000 and $100,000 (not 0)';
+  const problem = reasonProblem(note, 'a note explaining the adjustment');
+  if (problem) fields.note = problem;
+  if (Object.keys(fields).length > 0) {
+    res.status(400).json({ error: 'Some fields are invalid', fields });
+    return;
+  }
+  const period = await addAdjustment(res.locals.user as User, id!, cents, note as string);
+  if (!period) {
+    res.status(404).json({ error: 'User not found' });
+    return;
+  }
+  res.status(201).json({ period });
+});
+
+app.post('/api/earnings/periods/:start/close', requireAdmin, async (req, res) => {
+  const result = await closePeriod(String(req.params.start), res.locals.user as User);
+  const errors = { 'not-found': [404, 'Pay period not found'], closed: [409, 'This period is already closed'], 'not-ended': [409, "A period can only be closed after it ends"] } as const;
+  if (result !== 'ok') {
+    const [status, error] = errors[result];
+    res.status(status).json({ error });
+    return;
+  }
+  res.json(await listPeriods());
+});
+
+app.get('/api/earnings/periods/:start/export.csv', requireAdmin, async (req, res) => {
+  const start = String(req.params.start);
+  const csv = parseDate(start) && periodFor(start).start === start ? await exportCsv(res.locals.user as User, start) : null;
+  if (csv === null) {
+    res.status(404).json({ error: 'Pay period not found' });
+    return;
+  }
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="pay-${start}.csv"`);
+  res.setHeader('Cache-Control', 'no-store');
+  res.send(csv);
+});
+
+// GET /api/stats/sales/weekly?scope=me|team|all&weeks=9
+app.get('/api/stats/sales/weekly', requireSalesTeam, async (req, res) => {
+  const viewer = res.locals.user as User;
+  const requested = req.query.scope;
+  const scope = requested === 'all' && viewer.role === 'admin' ? 'all' : requested === 'team' && viewer.role !== 'sales' ? 'team' : 'me';
+  const weeks = Math.min(26, Math.max(1, Math.trunc(Number(req.query.weeks)) || 9));
+  res.setHeader('Cache-Control', 'no-store');
+  res.json(await weeklyStats(viewer, scope, weeks));
+});
+
+// --- Accounting: compensation setup (admins) ----------------------------------------------------
+
+app.get('/api/admin/staff', requireAdmin, async (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json(await listStaff());
+});
+
+app.get('/api/admin/comp-plans', requireAdmin, async (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json(await listPlans());
+});
+
+// Body: { effectiveFrom, managerOverride, tiers: [{ fromUnit, perVehicle }] }
+app.post('/api/admin/comp-plans', requireAdmin, async (req, res) => {
+  const check = validatePlan(req.body);
+  if (!check.ok) {
+    res.status(400).json({ error: check.error });
+    return;
+  }
+  if (!(await createPlan(res.locals.user as User, check.value))) {
+    res.status(409).json({ error: 'A plan already starts on that date' });
+    return;
+  }
+  res.status(201).json(await listPlans());
+});
+
+// Body: { annualSalary (dollars), effectiveFrom }
+app.put('/api/admin/salaries/:userId', requireAdmin, async (req, res) => {
+  const id = toId(req.params.userId);
+  const { annualSalary, effectiveFrom } = (req.body ?? {}) as Record<string, unknown>;
+  const cents = typeof annualSalary === 'number' && Number.isFinite(annualSalary) ? Math.round(annualSalary * 100) : NaN;
+  const fields: Record<string, string> = {};
+  if (!Number.isFinite(cents) || cents < 0 || cents > 100_000_000_00) fields.annualSalary = 'Enter an annual salary between $0 and $100,000,000';
+  if (!parseDate(effectiveFrom)) fields.effectiveFrom = 'Enter the date it starts';
+  if (Object.keys(fields).length > 0) {
+    res.status(400).json({ error: 'Some fields are invalid', fields });
+    return;
+  }
+  if (id === undefined || !(await setSalary(res.locals.user as User, id, cents, effectiveFrom as string))) {
+    res.status(404).json({ error: 'Staff member not found' });
+    return;
+  }
+  res.json(await listStaff());
+});
+
+// Body: { managerId | null }
+app.put('/api/users/:id/manager', requireAdmin, async (req, res) => {
+  const id = toId(req.params.id);
+  const raw = (req.body as { managerId?: unknown } | undefined)?.managerId;
+  const managerId = raw === null || raw === undefined || raw === '' ? null : toId(raw);
+  if (managerId === undefined) {
+    res.status(400).json({ error: 'Choose a manager' });
+    return;
+  }
+  const result = id === undefined ? 'not-found' : await setManager(id, managerId);
+  const errors = { 'not-found': [404, 'User not found'], 'not-a-rep': [400, 'Only sales reps have a manager'], 'bad-manager': [400, 'Choose an active manager'] } as const;
+  if (result !== 'ok') {
+    const [status, error] = errors[result];
+    res.status(status).json({ error });
+    return;
+  }
+  res.json(await listStaff());
+});
+
 // --- Customer chat (public; answered by the Foundry agent) -------------------------------------
 
 app.get('/api/chat/status', (_req, res) => {
@@ -560,6 +824,10 @@ if (existsSync(dist)) {
 }
 
 app.use((err: Error & { status?: number }, _req: Request, res: Response, _next: NextFunction) => {
+  if (err instanceof VehicleHasSalesError) {
+    res.status(409).json({ error: err.message });
+    return;
+  }
   if (err instanceof DuplicateStockNumberError) {
     res.status(409).json({ error: err.message, fields: { stockNumber: err.message } });
     return;

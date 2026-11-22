@@ -426,6 +426,78 @@ tfoot td { border-top: 2px solid var(--border); border-bottom: 0; }
   .lead-next { align-items: flex-start; }
 }
 
+/* Accounting: sales, earnings, compensation */
+.account-bar { flex-wrap: wrap; row-gap: 4px; }
+.seg-tabs { display: flex; gap: 4px; padding: 4px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; width: fit-content; max-width: 100%; overflow-x: auto; }
+.seg-tab { padding: 8px 16px; border: 0; border-radius: 8px; background: none; color: var(--muted); font-weight: 600; white-space: nowrap; cursor: pointer; }
+.seg-tab.active { background: var(--accent); color: #fff; }
+.seg-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.sale-pending { background: #fef3c7; color: #92400e; }
+.sale-approved, .sale-sold { background: var(--success-soft); color: var(--success); }
+.sale-rejected { background: var(--danger-soft); color: var(--danger); }
+.sale-voided { background: var(--border); color: var(--muted); }
+.sale-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.sale-card { padding: 14px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+.sale-main { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 6px 16px; }
+.sale-main .mono { white-space: nowrap; }
+.sale-price { font-size: 1.15rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+.sale-meta { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px 16px; margin: 10px 0 0; }
+.sale-meta dt { font-size: 0.7rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.sale-meta dd { margin: 2px 0 0; overflow-wrap: anywhere; }
+.sale-notes { margin: 10px 0 0; }
+.sale-card .field-hint { margin-top: 8px; }
+.sale-actions { margin-top: 12px; }
+.reason-form { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.reason-form label { font-size: 0.85rem; font-weight: 600; }
+.reason-form input { padding: 9px 11px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.period-picker { display: flex; flex-direction: column; gap: 6px; }
+.period-picker select { padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.statement-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 8px 24px; margin-bottom: 14px; }
+.statement-head .panel-title { margin-bottom: 6px; }
+.statement-total { display: flex; flex-direction: column; align-items: flex-end; }
+.statement-total .kpi-value { color: var(--accent); font-size: 2rem; }
+.statement-kpis { margin-bottom: 14px; }
+.statement-kpis .kpi-value { font-size: 1.25rem; }
+td.wrap { white-space: normal; min-width: 220px; }
+tr.negative td.num { color: var(--danger); }
+tr.selected td { background: var(--accent-soft); }
+tr.inactive td { opacity: 0.6; }
+.week-chart { margin: 18px 0; }
+.week-bars { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 8px; align-items: end; height: 180px; padding: 0 4px; border-bottom: 1px solid var(--border); }
+.week-col { display: flex; flex-direction: column; align-items: center; height: 100%; min-width: 0; }
+.week-value { font-size: 0.8rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.week-track { display: flex; align-items: flex-end; flex: 1; width: 100%; max-width: 48px; }
+.week-bar { display: block; width: 100%; min-height: 2px; border-radius: 4px 4px 0 0; background: var(--accent); opacity: 0.55; }
+.week-col.current .week-bar { opacity: 1; }
+.week-label { margin-top: 4px; color: var(--muted); font-size: 0.7rem; white-space: nowrap; transform: translateY(calc(100% + 4px)); position: absolute; }
+.week-col { position: relative; }
+.week-chart .week-bars { margin-bottom: 26px; }
+.payroll-actions { flex-wrap: wrap; }
+.payroll-actions .button { margin-top: 0; }
+.adjust-form { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); }
+.plan-list { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.plan { padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; }
+.plan.current { border-color: var(--success); }
+.plan-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.plan-form { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); }
+.tier-rows { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; border: 0; }
+.tier-row { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: end; }
+.tier-row label { display: flex; flex-direction: column; gap: 4px; font-size: 0.8rem; color: var(--muted); }
+.tier-row input { width: 130px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.salary-form { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.salary-form input { width: 120px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.salary-form input[type='date'] { width: 150px; }
+.salary-form .button { margin-top: 0; padding: 6px 12px; }
+td select { padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.field-label { font-size: 0.8rem; font-weight: 600; color: var(--muted); }
+.estimate { margin: 6px 0 0; }
+.estimate strong { font-size: 1.2rem; color: var(--accent); }
+.picked-vehicle { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px 16px; padding: 10px 12px; border: 1px solid var(--accent); border-radius: 10px; background: var(--accent-soft); }
+.picked-vehicle .button { margin-top: 0; }
+.vehicle-options { list-style: none; margin: 4px 0 0; padding: 4px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); box-shadow: 0 8px 24px rgba(0,0,0,0.08); }
+.vehicle-option { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 12px; width: 100%; padding: 10px; border: 0; border-radius: 8px; background: none; text-align: left; cursor: pointer; }
+.vehicle-option:hover, .vehicle-option:focus-visible { background: var(--accent-soft); outline: none; }
+
 /* =============================================================================================
    Touch and small screens (phones, tablets)
    Widths: 860px = one column (phone landscape, iPad portrait), 640px = phone (PHONE_QUERY in
