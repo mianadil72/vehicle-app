@@ -6,7 +6,11 @@ import { Notice } from './components/Notice';
 import { RequireAdmin } from './components/RequireAdmin';
 import { RequireSalesTeam } from './components/RequireRole';
 import { RequireSignedIn } from './components/RequireSignedIn';
+import { CompensationPage } from './pages/CompensationPage';
 import { ContactPage } from './pages/ContactPage';
+import { EarningsPage } from './pages/EarningsPage';
+import { RecordSalePage } from './pages/RecordSalePage';
+import { SalesPage } from './pages/SalesPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { LeadDetailPage } from './pages/LeadDetailPage';
 import { LeadsPage } from './pages/LeadsPage';
@@ -32,6 +36,10 @@ export default function App() {
         <Route path="/dashboard" element={<RequireSignedIn><DashboardPage /></RequireSignedIn>} />
         <Route path="/leads" element={<RequireSalesTeam><LeadsPage /></RequireSalesTeam>} />
         <Route path="/leads/:id" element={<RequireSalesTeam><LeadDetailPage /></RequireSalesTeam>} />
+        <Route path="/sales" element={<RequireSalesTeam><SalesPage /></RequireSalesTeam>} />
+        <Route path="/sales/new" element={<RequireSalesTeam><RecordSalePage /></RequireSalesTeam>} />
+        <Route path="/earnings" element={<RequireSalesTeam><EarningsPage /></RequireSalesTeam>} />
+        <Route path="/admin/compensation" element={<RequireAdmin><CompensationPage /></RequireAdmin>} />
         <Route path="/account/password" element={<RequireAdmin><PasswordPage /></RequireAdmin>} />
         <Route path="/vehicles/new" element={<RequireAdmin><VehicleFormPage /></RequireAdmin>} />
         <Route path="/vehicles/:id" element={<VehicleDetailPage />} />

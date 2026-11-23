@@ -246,3 +246,142 @@ BEGIN
   CREATE INDEX IX_LeadNotifications_LeadId ON dbo.LeadNotifications (LeadId);
 END
 GO
+
+-- ---------------------------------------------------------------------------------------------
+-- Accounting: sales, perks, manager overrides, salaries, bi-weekly pay (server/sales.ts, payroll.ts).
+-- dbo.EarningEntries is an append-only ledger: rows are never updated or deleted; corrections are new rows.
+-- ---------------------------------------------------------------------------------------------
+
+-- A sales rep's manager (gets the override on the rep's sales; approves them; sees their pay).
+IF COL_LENGTH(N'dbo.Users', N'ManagerUserId') IS NULL
+  ALTER TABLE dbo.Users ADD ManagerUserId INT NULL CONSTRAINT FK_Users_Manager REFERENCES dbo.Users (UserId);
+GO
+
+-- Available: listed for sale. SalePending: a sale is waiting for approval. Sold: approved sale.
+IF COL_LENGTH(N'dbo.Vehicles', N'SaleStatus') IS NULL
+BEGIN
+  ALTER TABLE dbo.Vehicles ADD SaleStatus VARCHAR(12) NOT NULL CONSTRAINT DF_Vehicles_SaleStatus DEFAULT 'Available'
+    CONSTRAINT CK_Vehicles_SaleStatus CHECK (SaleStatus IN ('Available', 'SalePending', 'Sold'));
+END
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_Vehicles_SaleStatus' AND object_id = OBJECT_ID(N'dbo.Vehicles'))
+  CREATE INDEX IX_Vehicles_SaleStatus ON dbo.Vehicles (SaleStatus);
+GO
+
+IF OBJECT_ID(N'dbo.CompPlans', N'U') IS NULL
+BEGIN
+  -- Commission plan versions. The plan in effect on the approval date is used, and stored on the sale.
+  CREATE TABLE dbo.CompPlans (
+    PlanId           INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_CompPlans PRIMARY KEY,
+    EffectiveFrom    DATE          NOT NULL CONSTRAINT UQ_CompPlans_EffectiveFrom UNIQUE,
+    ManagerOverride  DECIMAL(12,2) NOT NULL CONSTRAINT CK_CompPlans_Override CHECK (ManagerOverride >= 0),
+    CreatedByUserId  INT           NULL CONSTRAINT FK_CompPlans_CreatedBy REFERENCES dbo.Users (UserId),
+    CreatedAt        DATETIME2(0)  NOT NULL CONSTRAINT DF_CompPlans_CreatedAt DEFAULT SYSUTCDATETIME()
+  );
+END
+GO
+
+IF OBJECT_ID(N'dbo.CompPlanTiers', N'U') IS NULL
+BEGIN
+  -- Per-vehicle perk by the rep's unit number in the calendar month (marginal): FromUnit 1, 9, 13 ...
+  CREATE TABLE dbo.CompPlanTiers (
+    PlanId      INT           NOT NULL CONSTRAINT FK_CompPlanTiers_Plans REFERENCES dbo.CompPlans (PlanId) ON DELETE CASCADE,
+    FromUnit    INT           NOT NULL CONSTRAINT CK_CompPlanTiers_FromUnit CHECK (FromUnit >= 1),
+    PerVehicle  DECIMAL(12,2) NOT NULL CONSTRAINT CK_CompPlanTiers_PerVehicle CHECK (PerVehicle >= 0),
+    CONSTRAINT PK_CompPlanTiers PRIMARY KEY (PlanId, FromUnit)
+  );
+END
+GO
+
+IF OBJECT_ID(N'dbo.EmployeeSalaries', N'U') IS NULL
+BEGIN
+  -- Annual base salary history; a pay period uses the salary in effect on its first day (annual / 26).
+  CREATE TABLE dbo.EmployeeSalaries (
+    UserId           INT           NOT NULL CONSTRAINT FK_EmployeeSalaries_Users REFERENCES dbo.Users (UserId),
+    EffectiveFrom    DATE          NOT NULL,
+    AnnualSalary     DECIMAL(12,2) NOT NULL CONSTRAINT CK_EmployeeSalaries_Amount CHECK (AnnualSalary >= 0),
+    CreatedByUserId  INT           NULL CONSTRAINT FK_EmployeeSalaries_CreatedBy REFERENCES dbo.Users (UserId),
+    CreatedAt        DATETIME2(0)  NOT NULL CONSTRAINT DF_EmployeeSalaries_CreatedAt DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT PK_EmployeeSalaries PRIMARY KEY (UserId, EffectiveFrom)
+  );
+END
+GO
+
+IF OBJECT_ID(N'dbo.Sales', N'U') IS NULL
+BEGIN
+  CREATE TABLE dbo.Sales (
+    SaleId            INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_Sales PRIMARY KEY,
+    VehicleId         INT            NOT NULL CONSTRAINT FK_Sales_Vehicles REFERENCES dbo.Vehicles (VehicleId),
+    LeadId            INT            NULL CONSTRAINT FK_Sales_Leads REFERENCES dbo.Leads (LeadId) ON DELETE SET NULL,
+    BuyerName         NVARCHAR(100)  NOT NULL,
+    ListPrice         DECIMAL(12,2)  NOT NULL,
+    SalePrice         DECIMAL(12,2)  NOT NULL CONSTRAINT CK_Sales_SalePrice CHECK (SalePrice > 0),
+    SaleDate          DATE           NOT NULL,
+    SoldByUserId      INT            NOT NULL CONSTRAINT FK_Sales_SoldBy REFERENCES dbo.Users (UserId),
+    -- The seller's manager at approval time: earns the override (NULL when a manager/admin sold it).
+    ManagerUserId     INT            NULL CONSTRAINT FK_Sales_Manager REFERENCES dbo.Users (UserId),
+    Status            VARCHAR(10)    NOT NULL CONSTRAINT DF_Sales_Status DEFAULT 'Pending'
+                        CONSTRAINT CK_Sales_Status CHECK (Status IN ('Pending', 'Approved', 'Rejected', 'Voided')),
+    -- The seller's nth approved sale in the sale's calendar month (fixed at approval) and the plan used.
+    MonthUnit         INT            NULL,
+    PlanId            INT            NULL CONSTRAINT FK_Sales_Plans REFERENCES dbo.CompPlans (PlanId),
+    Notes             NVARCHAR(1000) NULL,
+    SubmittedAt       DATETIME2(0)   NOT NULL CONSTRAINT DF_Sales_SubmittedAt DEFAULT SYSUTCDATETIME(),
+    DecidedByUserId   INT            NULL CONSTRAINT FK_Sales_DecidedBy REFERENCES dbo.Users (UserId),
+    DecidedAt         DATETIME2(0)   NULL,
+    RejectReason      NVARCHAR(300)  NULL,
+    VoidedByUserId    INT            NULL CONSTRAINT FK_Sales_VoidedBy REFERENCES dbo.Users (UserId),
+    VoidedAt          DATETIME2(0)   NULL,
+    VoidReason        NVARCHAR(300)  NULL
+  );
+  -- At most one live (pending or approved) sale per vehicle.
+  CREATE UNIQUE INDEX UX_Sales_LiveVehicle ON dbo.Sales (VehicleId) WHERE Status IN ('Pending', 'Approved');
+  CREATE INDEX IX_Sales_SoldBy_Date ON dbo.Sales (SoldByUserId, SaleDate);
+  CREATE INDEX IX_Sales_Status ON dbo.Sales (Status);
+END
+GO
+
+IF OBJECT_ID(N'dbo.PayPeriods', N'U') IS NULL
+BEGIN
+  -- Bi-weekly (Mon-Sun x 2) pay periods, created on demand. Closed periods accept no new entries.
+  CREATE TABLE dbo.PayPeriods (
+    PeriodStart     DATE         NOT NULL CONSTRAINT PK_PayPeriods PRIMARY KEY,
+    PeriodEnd       DATE         NOT NULL,
+    Status          VARCHAR(6)   NOT NULL CONSTRAINT DF_PayPeriods_Status DEFAULT 'Open'
+                      CONSTRAINT CK_PayPeriods_Status CHECK (Status IN ('Open', 'Closed')),
+    ClosedByUserId  INT          NULL CONSTRAINT FK_PayPeriods_ClosedBy REFERENCES dbo.Users (UserId),
+    ClosedAt        DATETIME2(0) NULL
+  );
+END
+GO
+
+IF OBJECT_ID(N'dbo.EarningEntries', N'U') IS NULL
+BEGIN
+  -- Append-only earnings ledger. A pay statement is the sum of a person's entries in a period.
+  CREATE TABLE dbo.EarningEntries (
+    EntryId          INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_EarningEntries PRIMARY KEY,
+    UserId           INT           NOT NULL CONSTRAINT FK_EarningEntries_Users REFERENCES dbo.Users (UserId),
+    PeriodStart      DATE          NOT NULL CONSTRAINT FK_EarningEntries_Periods REFERENCES dbo.PayPeriods (PeriodStart),
+    Type             VARCHAR(16)   NOT NULL CONSTRAINT CK_EarningEntries_Type
+                       CHECK (Type IN ('Salary', 'Perk', 'Override', 'PerkReversal', 'OverrideReversal', 'Adjustment')),
+    Amount           DECIMAL(12,2) NOT NULL,
+    SaleId           INT           NULL CONSTRAINT FK_EarningEntries_Sales REFERENCES dbo.Sales (SaleId),
+    Note             NVARCHAR(300) NULL,
+    CreatedByUserId  INT           NULL CONSTRAINT FK_EarningEntries_CreatedBy REFERENCES dbo.Users (UserId),
+    CreatedAt        DATETIME2(0)  NOT NULL CONSTRAINT DF_EarningEntries_CreatedAt DEFAULT SYSUTCDATETIME()
+  );
+  CREATE INDEX IX_EarningEntries_Period_User ON dbo.EarningEntries (PeriodStart, UserId);
+  CREATE INDEX IX_EarningEntries_Sale ON dbo.EarningEntries (SaleId);
+END
+GO
+
+-- Default commission plan (v1): perks $200 / $300 / $400 from the 1st / 9th / 13th unit of the month,
+-- manager override $50 per team vehicle. Admins add new versions in the app.
+IF NOT EXISTS (SELECT 1 FROM dbo.CompPlans)
+BEGIN
+  DECLARE @plan INT;
+  INSERT INTO dbo.CompPlans (EffectiveFrom, ManagerOverride) VALUES ('2026-11-02', 50.00);
+  SET @plan = SCOPE_IDENTITY();
+  INSERT INTO dbo.CompPlanTiers (PlanId, FromUnit, PerVehicle) VALUES (@plan, 1, 200.00), (@plan, 9, 300.00), (@plan, 13, 400.00);
+END
+GO

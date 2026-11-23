@@ -22,7 +22,7 @@ const MAX_LENGTH = 1000; // CHAT_MESSAGE_MAX_LENGTH in server/chat.ts
 const STORAGE_KEY = 'vehicle-chat';
 
 // Pages for customers; the chat stays out of the way on sign-in and admin screens.
-const HIDDEN = [/^\/login/, /^\/forgot-password/, /^\/reset-password/, /^\/account\//, /^\/dashboard/, /^\/leads/,/^\/vehicles\/new$/, /\/edit$/];
+const HIDDEN = [/^\/login/, /^\/forgot-password/, /^\/reset-password/, /^\/account\//, /^\/dashboard/, /^\/leads/, /^\/sales/, /^\/earnings/, /^\/admin\//,/^\/vehicles\/new$/, /\/edit$/];
 
 /** closed: just the launcher button; minimized: a title bar; open: the full chat (optionally maximized). */
 type Mode = 'closed' | 'minimized' | 'open';

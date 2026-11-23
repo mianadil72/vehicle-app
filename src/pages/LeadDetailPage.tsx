@@ -464,10 +464,18 @@ function Outcome({ lead, onChange }: { lead: Lead; onChange: (lead: Lead) => voi
           </div>
         </div>
       ) : (
-        <div className="request-actions">
-          <button type="button" className="button" onClick={() => setConfirming('Won')}>Won</button>
-          <button type="button" className="button button-danger-outline" onClick={() => setConfirming('Lost')}>Lost</button>
-        </div>
+        <>
+          {lead.vehicle && (
+            <p className="field-hint">
+              Sold the {lead.vehicle.title}? Record the sale: when your manager approves it, this lead is marked won and the perk is added to your pay.
+            </p>
+          )}
+          <div className="request-actions">
+            {lead.vehicle && <Link to={`/sales/new?lead=${lead.id}`} className="button">Record sale</Link>}
+            <button type="button" className={lead.vehicle ? 'button button-secondary' : 'button'} onClick={() => setConfirming('Won')}>Won</button>
+            <button type="button" className="button button-danger-outline" onClick={() => setConfirming('Lost')}>Lost</button>
+          </div>
+        </>
       )}
       {error && <p className="field-error" role="alert">{error}</p>}
     </section>

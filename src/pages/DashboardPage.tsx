@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router';
-import { fetchInventoryStats, useRemote } from '../api';
+import { fetchInventoryStats, fetchWeeklyStats, useRemote } from '../api';
+import { useAuth } from '../auth';
 import { RemoteStatus } from '../components/RemoteStatus';
 import { formatDateTime, formatMileage, formatPrice } from '../format';
 import type { NavState } from '../navigation';
@@ -21,6 +22,12 @@ export function DashboardPage() {
   const [refresh, setRefresh] = useState(0);
   const stats = useRemote(`inventory-stats-${refresh}`, (signal) => fetchInventoryStats(signal));
   const from = { from: location.pathname } satisfies NavState;
+  // Sales team: vehicles sold this week (admins: dealership, managers: their team, reps: their own).
+  const auth = useAuth();
+  const salesScope = auth.isAdmin ? 'all' : auth.isLeadManager ? 'team' : 'me';
+  const weekly = useRemote(auth.isSalesTeam ? `weekly-kpi-${salesScope}-${refresh}` : null, (signal) => fetchWeeklyStats(salesScope, 2, signal));
+  const soldThisWeek = weekly.status === 'ready' ? weekly.data.totals[1] : null;
+  const soldLastWeek = weekly.status === 'ready' ? weekly.data.totals[0] : null;
 
   return (
     <main className="dashboard">
@@ -50,6 +57,13 @@ export function DashboardPage() {
             <section className="kpis" aria-label="Totals">
               <Kpi label="Vehicles in stock" value={number.format(total.count)} hero
                 detail={CONDITIONS.map((c) => `${total.byCondition[c]} ${c.toLowerCase()}`).join(' · ')} />
+              {soldThisWeek && soldLastWeek && (
+                <Kpi
+                  label={salesScope === 'all' ? 'Sold this week' : salesScope === 'team' ? 'Team sold this week' : 'You sold this week'}
+                  value={number.format(soldThisWeek.units)}
+                  detail={`${formatPrice(soldThisWeek.revenue)} · ${soldLastWeek.units} last week`}
+                />
+              )}
               <Kpi label="Inventory value" value={compactPrice.format(total.totalValue)} detail={formatPrice(total.totalValue)} />
               <Kpi label="Average price" value={orDash(total.avgPrice, formatPrice)} />
               <Kpi label="Average mileage" value={orDash(total.avgMileage, formatMileage)} />

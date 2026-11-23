@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
-import { fetchLeadCounts, fetchResetRequests, useRemote } from '../api';
+import { fetchLeadCounts, fetchPendingSaleCount, fetchResetRequests, useRemote } from '../api';
 import { useAuth } from '../auth';
 import type { NavState } from '../navigation';
 import type { Role } from '../types';
@@ -31,6 +31,9 @@ export function AccountBar() {
   ]
     .filter(Boolean)
     .join(', ');
+  // Sales waiting for this manager's/admin's approval.
+  const approvals = useRemote(auth.isLeadManager ? `sale-approvals-${location.pathname}` : null, (signal) => fetchPendingSaleCount(signal));
+  const toApprove = approvals.status === 'ready' ? approvals.data : 0;
 
   // Phones (≤640px): the signed-in links collapse into a "Menu" dropdown.
   // Open only on the page where it was opened, so navigating closes it.
@@ -88,7 +91,7 @@ export function AccountBar() {
     navigate(location, { replace: true, state: { ...state, notice: 'Signed out.' } satisfies NavState });
   };
 
-  const attention = leadAttention + (auth.isAdmin ? pending : 0);
+  const attention = leadAttention + toApprove + (auth.isAdmin ? pending : 0);
 
   return (
     <div className="account-bar" ref={menuRef}>
@@ -120,6 +123,23 @@ export function AccountBar() {
             </span>
           )}
         </Link>
+      )}
+      {auth.isSalesTeam && location.pathname !== '/sales' && (
+        <Link to={toApprove > 0 ? '/sales?tab=decide' : '/sales'} className="account-link">
+          Sales
+          {toApprove > 0 && (
+            <span className="badge" title={`${toApprove} sale${toApprove === 1 ? '' : 's'} to approve`}>
+              {toApprove}
+              <span className="visually-hidden"> sale{toApprove === 1 ? '' : 's'} to approve</span>
+            </span>
+          )}
+        </Link>
+      )}
+      {auth.isSalesTeam && location.pathname !== '/earnings' && (
+        <Link to="/earnings" className="account-link">Earnings</Link>
+      )}
+      {auth.isAdmin && location.pathname !== '/admin/compensation' && (
+        <Link to="/admin/compensation" className="account-link">Compensation</Link>
       )}
       {location.pathname !== '/dashboard' && (
         <Link to="/dashboard" className="account-link">

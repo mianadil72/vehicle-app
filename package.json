@@ -11,6 +11,7 @@
     "db:setup": "node --env-file-if-exists=.env server/db/setup.ts",
     "db:photos": "node --env-file-if-exists=.env server/db/photos.ts",
     "user": "node --env-file-if-exists=.env server/db/user.ts",
+    "db:test-teams": "node --env-file-if-exists=.env server/db/seedTestTeams.ts",
     "agent:setup": "node --env-file-if-exists=.env server/agentSetup.ts",
     "build": "tsc -b && vite build",
     "start": "node --env-file-if-exists=.env server/index.ts",
