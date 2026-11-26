@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { normalizeMobile, validateLead } from '../src/leadValidation.ts';
+import { normalizeMobile, validateLead, validateLeadEmail, validateStaffContact } from '../src/leadValidation.ts';
+import { canCountAsFollowUp, emailSignature, emailThrottle, formatStaffMobile, senderName } from './leadEmails.ts';
+import { fromAddress } from './notify.ts';
 import { leadReference, type Lead } from '../src/types.ts';
 import { firstFollowUpDue, followUpProblem, followUpStatus, isOverdue, leadThrottle, nextFollowUpDue } from './leads.ts';
 import { headerSafe, leadEmail, leadSms, returningLines } from './notify.ts';
@@ -145,6 +147,8 @@ describe('manager notifications', () => {
     closedAt: null,
     followUpList: [],
     notifications: [],
+    emails: [],
+    canEmail: false,
     returning: { customerSince: '2026-11-19T15:00:00.000Z', otherLeads: [], onFile: null },
   };
 
@@ -203,5 +207,71 @@ describe('manager notifications', () => {
     const { text } = leadSms(long, 'https://dealer.example');
     assert.ok(text.length <= 160, `${text.length} characters`);
     assert.ok(text.endsWith('https://dealer.example/leads/42'));
+  });
+});
+
+describe('staff contact details', () => {
+  it('normalizes email and mobile, and allows clearing both', () => {
+    assert.deepEqual(validateStaffContact(' Test.Rep01@OneStopVehicleShop.EXAMPLE ', '(213) 555-0106'), {
+      ok: true,
+      value: { email: 'test.rep01@onestopvehicleshop.example', mobile: '2135550106' },
+    });
+    assert.deepEqual(validateStaffContact('', ''), { ok: true, value: { email: null, mobile: null } });
+    assert.deepEqual(validateStaffContact(null, undefined), { ok: true, value: { email: null, mobile: null } });
+  });
+
+  it('rejects a bad email or mobile', () => {
+    const r = validateStaffContact('not-an-email', '12345');
+    assert.equal(r.ok, false);
+    assert.deepEqual(Object.keys(!r.ok ? r.errors : {}).sort(), ['email', 'mobile']);
+    assert.equal(validateStaffContact(42, null).ok, false);
+  });
+});
+
+describe('emails to customers', () => {
+  it('validates subject and body, and keeps the subject on one line', () => {
+    assert.deepEqual(validateLeadEmail(' Your\r\nenquiry ', '  Hi Ada,\r\nThanks.  '), {
+      ok: true,
+      value: { subject: 'Your enquiry', body: 'Hi Ada,\nThanks.' },
+    });
+    const empty = validateLeadEmail('  ', '');
+    assert.equal(empty.ok, false);
+    assert.deepEqual(Object.keys(!empty.ok ? empty.errors : {}).sort(), ['body', 'subject']);
+    assert.equal(validateLeadEmail('x'.repeat(151), 'Hi').ok, false);
+    assert.equal(validateLeadEmail('Hi', 'x'.repeat(5001)).ok, false);
+  });
+
+  it('signs with the sender and formats US mobiles', () => {
+    assert.equal(formatStaffMobile('2135550106'), '(213) 555-0106');
+    assert.equal(formatStaffMobile('+12135550106'), '(213) 555-0106');
+    assert.equal(formatStaffMobile('+447700900123'), '+447700900123');
+    assert.equal(
+      emailSignature({ username: 'test.rep01', email: 'rep@d.example', mobile: '2135550106' }),
+      '--\ntest.rep01\nOne-Stop Vehicle Shop\nrep@d.example\nMobile: (213) 555-0106',
+    );
+    assert.doesNotMatch(emailSignature({ username: 'a', email: 'a@d.example', mobile: null }), /Mobile/);
+    assert.equal(senderName('jsmith'), 'jsmith · One-Stop Vehicle Shop');
+  });
+
+  it('takes the address out of SMTP_FROM', () => {
+    assert.equal(fromAddress('One-Stop Vehicle Shop <no-reply@d.example>'), 'no-reply@d.example');
+    assert.equal(fromAddress('sales@d.example'), 'sales@d.example');
+  });
+
+  it('counts as a follow-up only on an open, assigned lead with follow-ups left', () => {
+    const rep = { id: '6', username: 'test.rep01' };
+    assert.equal(canCountAsFollowUp({ status: 'Assigned', assignedTo: rep, followUps: 0 }), true);
+    assert.equal(canCountAsFollowUp({ status: 'SecondFollowUp', assignedTo: rep, followUps: 2 }), true);
+    assert.equal(canCountAsFollowUp({ status: 'ThirdFollowUp', assignedTo: rep, followUps: 3 }), false);
+    assert.equal(canCountAsFollowUp({ status: 'New', assignedTo: null, followUps: 0 }), false);
+    assert.equal(canCountAsFollowUp({ status: 'Won', assignedTo: rep, followUps: 1 }), false);
+  });
+
+  it('limits each sender to 30 emails an hour', () => {
+    const user = `test-${Math.random()}`;
+    const now = Date.now();
+    for (let i = 0; i < 30; i++) assert.equal(emailThrottle(user, now), 0);
+    assert.equal(emailThrottle(user, now), 60);
+    assert.equal(emailThrottle(user, now + 60 * 60 * 1000 + 1), 0);
   });
 });

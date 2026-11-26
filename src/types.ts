@@ -161,6 +161,25 @@ export interface LeadFollowUp {
   createdAt: string;
 }
 
+/** An email sent to the customer from the lead page (`POST /api/leads/:id/emails`). */
+export interface LeadEmail {
+  id: string;
+  sentBy: string;
+  to: string;
+  replyTo: string;
+  subject: string;
+  /** Plain text as sent, signature included. Render as text, never HTML. */
+  body: string;
+  status: 'Pending' | 'Sent' | 'Failed' | 'Logged';
+  error: string | null;
+  /** The follow-up (1-3) this email was recorded as, if any. */
+  followUpNumber: number | null;
+  createdAt: string;
+}
+
+export const LEAD_EMAIL_SUBJECT_MAX_LENGTH = 150;
+export const LEAD_EMAIL_BODY_MAX_LENGTH = 5000;
+
 export interface LeadNotification {
   channel: 'email' | 'sms';
   recipient: string;
@@ -183,6 +202,10 @@ export interface Lead extends Omit<LeadSummary, 'vehicle'> {
   closedAt: string | null;
   followUpList: LeadFollowUp[];
   notifications: LeadNotification[];
+  /** Emails sent to the customer from the portal, newest first. */
+  emails: LeadEmail[];
+  /** Whether the signed-in viewer has an email on file, which sending needs (it's the Reply-To). */
+  canEmail: boolean;
   /** The customer's other enquiries (same email). `customer` above holds this enquiry's details as submitted. */
   returning: {
     /** ISO 8601, UTC: the customer's first enquiry. */
@@ -319,6 +342,9 @@ export interface StaffMember {
   manager: PersonRef | null;
   annualSalary: number | null;
   salaryFrom: string | null;
+  /** Work email (the Reply-To on emails sent from the portal) and mobile (digits, optional leading +). */
+  email: string | null;
+  mobile: string | null;
 }
 
 /** A "forgot password" request waiting for an admin. */

@@ -4,6 +4,8 @@
 import {
   CONDITIONS,
   CONTACT_METHODS,
+  LEAD_EMAIL_BODY_MAX_LENGTH,
+  LEAD_EMAIL_SUBJECT_MAX_LENGTH,
   LEAD_MESSAGE_MAX_LENGTH,
   MAX_URGENCY_DAYS,
   type Condition,
@@ -122,4 +124,45 @@ export function validateLead(raw: unknown): LeadValidation {
       consent,
     },
   };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Staff contact details (admin page, `npm run user`) and emails to customers from the lead page.
+// ---------------------------------------------------------------------------------------------
+
+export type StaffContactValidation =
+  | { ok: true; value: { email: string | null; mobile: string | null } }
+  | { ok: false; errors: Partial<Record<'email' | 'mobile', string>> };
+
+/** A staff member's work email and mobile. Both optional: empty (or null) clears the value. */
+export function validateStaffContact(email: unknown, mobile: unknown): StaffContactValidation {
+  const errors: Partial<Record<'email' | 'mobile', string>> = {};
+  const e = typeof email === 'string' ? email.trim().toLowerCase() : '';
+  const m = typeof mobile === 'string' ? mobile.trim() : '';
+  if ((email != null && typeof email !== 'string') || (e && (e.length > EMAIL_MAX_LENGTH || !EMAIL.test(e)))) {
+    errors.email = 'Enter a valid email address, like name@example.com';
+  }
+  const normalized = m ? normalizeMobile(m) : null;
+  if ((mobile != null && typeof mobile !== 'string') || (m && !normalized)) {
+    errors.mobile = 'Enter a mobile number with area code, like (555) 123-4567';
+  }
+  if (Object.keys(errors).length > 0) return { ok: false, errors };
+  return { ok: true, value: { email: e || null, mobile: normalized } };
+}
+
+export type LeadEmailValidation =
+  | { ok: true; value: { subject: string; body: string } }
+  | { ok: false; errors: Partial<Record<'subject' | 'body', string>> };
+
+/** An email to the customer: subject on one line (1-150 chars), plain-text body (1-5000 chars). */
+export function validateLeadEmail(subject: unknown, body: unknown): LeadEmailValidation {
+  const errors: Partial<Record<'subject' | 'body', string>> = {};
+  const s = typeof subject === 'string' ? subject.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim() : '';
+  const b = typeof body === 'string' ? body.replace(/\r\n?/g, '\n').trim() : '';
+  if (!s) errors.subject = 'Add a subject';
+  else if (s.length > LEAD_EMAIL_SUBJECT_MAX_LENGTH) errors.subject = `Keep the subject under ${LEAD_EMAIL_SUBJECT_MAX_LENGTH} characters`;
+  if (!b) errors.body = 'Write a message';
+  else if (b.length > LEAD_EMAIL_BODY_MAX_LENGTH) errors.body = `Keep the message under ${LEAD_EMAIL_BODY_MAX_LENGTH.toLocaleString('en-US')} characters`;
+  if (Object.keys(errors).length > 0) return { ok: false, errors };
+  return { ok: true, value: { subject: s, body: b } };
 }

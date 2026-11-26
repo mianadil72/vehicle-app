@@ -14,6 +14,7 @@ import {
   type ContactMethod,
   type Lead,
   type LeadCounts,
+  type LeadEmail,
   type LeadFollowUp,
   type LeadNotification,
   type LeadSource,
@@ -255,6 +256,7 @@ export async function getLead(id: number, viewer: User | null): Promise<Lead | n
   const result = await pool
     .request()
     .input('id', mssql.Int, id)
+    .input('viewerId', mssql.Int, viewer ? Number(viewer.id) : null)
     .query(`
       ${SELECT_LEADS} WHERE l.LeadId = @id;
       SELECT f.Number, f.Method, f.Note, u.Username AS Author, f.CreatedAt
@@ -265,8 +267,15 @@ export async function getLead(id: number, viewer: User | null): Promise<Lead | n
       SELECT TOP (20) o.LeadId, o.Status, o.CreatedAt
         FROM dbo.Leads o
        WHERE o.CustomerId = (SELECT CustomerId FROM dbo.Leads WHERE LeadId = @id) AND o.LeadId <> @id
-       ORDER BY o.CreatedAt DESC, o.LeadId DESC;`);
-  const recordsets = result.recordsets as unknown as [LeadRow[], FollowUpRow[], NotificationRow[], OtherLeadRow[]];
+       ORDER BY o.CreatedAt DESC, o.LeadId DESC;
+      SELECT e.EmailId, u.Username AS SentBy, e.ToAddress, e.ReplyTo, e.Subject, e.Body, e.Status, e.Error,
+             e.FollowUpNumber, e.CreatedAt
+        FROM dbo.LeadEmails e JOIN dbo.Users u ON u.UserId = e.SentByUserId
+       WHERE e.LeadId = @id ORDER BY e.CreatedAt DESC, e.EmailId DESC;
+      SELECT Email FROM dbo.Users WHERE UserId = @viewerId;`);
+  const recordsets = result.recordsets as unknown as [
+    LeadRow[], FollowUpRow[], NotificationRow[], OtherLeadRow[], EmailRow[], { Email: string | null }[],
+  ];
   const row = recordsets[0][0];
   if (!row) return null;
   if (!canSeeAll(viewer) && String(row.AssignedToUserId) !== viewer!.id) return null;
@@ -309,7 +318,35 @@ export async function getLead(id: number, viewer: User | null): Promise<Lead | n
         createdAt: n.CreatedAt.toISOString(),
       }),
     ),
+    emails: recordsets[4].map(
+      (e): LeadEmail => ({
+        id: String(e.EmailId),
+        sentBy: e.SentBy,
+        to: e.ToAddress,
+        replyTo: e.ReplyTo,
+        subject: e.Subject,
+        body: e.Body,
+        status: e.Status,
+        error: e.Error,
+        followUpNumber: e.FollowUpNumber,
+        createdAt: e.CreatedAt.toISOString(),
+      }),
+    ),
+    canEmail: Boolean(recordsets[5][0]?.Email),
   };
+}
+
+interface EmailRow {
+  EmailId: number;
+  SentBy: string;
+  ToAddress: string;
+  ReplyTo: string;
+  Subject: string;
+  Body: string;
+  Status: LeadEmail['status'];
+  Error: string | null;
+  FollowUpNumber: number | null;
+  CreatedAt: Date;
 }
 
 interface FollowUpRow {

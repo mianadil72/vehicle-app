@@ -35,3 +35,9 @@ export const formatDate = (iso: string) => dateOnly.format(new Date(iso));
 
 /** "within 1 day", "within 30 days". */
 export const formatUrgency = (days: number) => `within ${days} day${days === 1 ? '' : 's'}`;
+
+/** A stored phone number for display: "2135550106" or "+12135550106" → "(213) 555-0106"; others as stored. */
+export function formatPhone(digits: string): string {
+  const d = digits.replace(/^\+?1(?=\d{10}$)/, '');
+  return /^\d{10}$/.test(d) ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : digits;
+}

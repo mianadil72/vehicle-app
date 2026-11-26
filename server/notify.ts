@@ -120,6 +120,48 @@ interface Delivery {
   replyTo?: string;
 }
 
+export type SendStatus = 'Sent' | 'Failed' | 'Logged';
+
+export interface MailOut {
+  to: string;
+  subject: string;
+  text: string;
+  replyTo?: string;
+  /** Display name on the From line; the address is always SMTP_FROM (the verified sender). */
+  fromName?: string;
+  /** Prefix for console lines, e.g. "lead L-00042". */
+  logTag: string;
+}
+
+/** The address part of SMTP_FROM ("Name <addr>" or "addr"). */
+export const fromAddress = (from: string) => (from.match(/<([^<>]+)>\s*$/)?.[1] ?? from).trim();
+
+/**
+ * Sends one plain-text message over SMTP. Never throws: returns Sent, Failed (with the error) or Logged
+ * (SMTP_HOST not set; the message is printed to the console instead, so development sends nothing).
+ */
+export async function sendMail(m: MailOut): Promise<{ status: SendStatus; error: string | null }> {
+  if (!smtpConfigured()) {
+    console.log(`[${m.logTag}] SMTP_HOST not set; email to ${m.to} not sent:\n${m.subject}\n${m.text}\n`);
+    return { status: 'Logged', error: null };
+  }
+  const from = env.SMTP_FROM || env.SMTP_USER || '';
+  try {
+    await smtp().sendMail({
+      from: m.fromName ? { name: headerSafe(m.fromName, 100), address: fromAddress(from) } : from,
+      to: m.to,
+      replyTo: m.replyTo,
+      subject: headerSafe(m.subject),
+      text: m.text,
+    });
+    return { status: 'Sent', error: null };
+  } catch (err) {
+    const error = (err instanceof Error ? err.message : String(err)).slice(0, 500);
+    console.error(`[${m.logTag}] email to ${m.to} failed:`, error);
+    return { status: 'Failed', error };
+  }
+}
+
 async function deliver(leadId: number, d: Delivery): Promise<void> {
   const [mssql, pool] = await Promise.all([sql(), getPool()]);
   const { recordset } = await pool
@@ -135,27 +177,13 @@ async function deliver(leadId: number, d: Delivery): Promise<void> {
         VALUES (@leadId, @channel, @recipient, @subject, @body)`);
   const notificationId = recordset[0].NotificationId;
 
-  let status: 'Sent' | 'Failed' | 'Logged';
-  let error: string | null = null;
-  if (!smtpConfigured()) {
-    status = 'Logged';
-    console.log(`[lead ${leadReference(leadId)}] SMTP_HOST not set; ${d.channel} to ${d.to} not sent:\n${d.message.subject}\n${d.message.text}\n`);
-  } else {
-    try {
-      await smtp().sendMail({
-        from: env.SMTP_FROM || env.SMTP_USER,
-        to: d.to,
-        replyTo: d.replyTo,
-        subject: d.message.subject,
-        text: d.message.text,
-      });
-      status = 'Sent';
-    } catch (err) {
-      status = 'Failed';
-      error = (err instanceof Error ? err.message : String(err)).slice(0, 500);
-      console.error(`[lead ${leadReference(leadId)}] ${d.channel} to ${d.to} failed:`, error);
-    }
-  }
+  const { status, error } = await sendMail({
+    to: d.to,
+    replyTo: d.replyTo,
+    subject: d.message.subject,
+    text: d.message.text,
+    logTag: `lead ${leadReference(leadId)} ${d.channel}`,
+  });
   await pool
     .request()
     .input('id', mssql.Int, notificationId)

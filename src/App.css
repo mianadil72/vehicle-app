@@ -29,6 +29,14 @@
 .toolbar .range strong { color: var(--text); }
 .toolbar input[type='range'] { accent-color: var(--accent); }
 .view-toggle { margin-left: auto; display: flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+/* Phones/tablets: "Filters" toggle that folds the tabs and toolbar while searching (InventoryPage). */
+.filter-bar { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin: -8px 0 12px; }
+.filter-toggle { display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; font-weight: 600; cursor: pointer; }
+.filter-toggle:focus-visible, .filter-reset:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.filter-toggle .chevron { color: var(--muted); transition: transform 0.15s; }
+.filter-toggle[aria-expanded='true'] .chevron { transform: rotate(180deg); }
+.filter-reset { padding: 8px 4px; border: 0; background: none; color: var(--accent); font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .filter-toggle .chevron { transition: none; } }
 .view-toggle button { padding: 7px 14px; border: 0; background: var(--surface); cursor: pointer; }
 .view-toggle button.active { background: var(--accent); color: #fff; }
 
@@ -118,7 +126,7 @@ tbody tr:last-child td { border-bottom: 0; }
 .form-layout { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(260px, 1fr); gap: 28px; align-items: start; }
 .vehicle-form { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 20px; }
 .vehicle-form h1 { margin: 0 0 16px; font-size: 1.4rem; }
-.vehicle-form fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+.vehicle-form fieldset, .panel fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 16px; }
 .field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .field-wide { grid-column: 1 / -1; }
@@ -420,6 +428,18 @@ tfoot td { border-top: 2px solid var(--border); border-bottom: 0; }
 .notify-sent { background: var(--success-soft); color: var(--success); }
 .notify-failed { background: var(--danger-soft); color: var(--danger); }
 .notify-logged, .notify-pending { background: var(--accent-soft); color: var(--accent); }
+/* Lead page: email the customer, and the emails sent so far (LeadDetailPage EmailCustomer). */
+.alert-success { margin: 0; padding: 10px 14px; border-radius: 8px; background: var(--success-soft); color: var(--success); font-size: 0.9rem; }
+.email-history-title { margin-top: 20px; }
+.email-history { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.email-history details { border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; }
+.email-history summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; cursor: pointer; list-style: none; padding: 4px 0; }
+.email-history summary::-webkit-details-marker { display: none; }
+.email-history summary::after { content: '▾'; margin-left: auto; color: var(--muted); }
+.email-history details[open] summary::after { content: '▴'; }
+.email-history .email-subject { font-weight: 600; overflow-wrap: anywhere; min-width: 0; }
+.email-history summary .field-hint { flex-basis: 100%; }
+.email-history .comment-body { margin-top: 8px; }
 
 @media (max-width: 860px) {
   .lead-layout { grid-template-columns: 1fr; }
@@ -488,6 +508,19 @@ tr.inactive td { opacity: 0.6; }
 .salary-form input { width: 120px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
 .salary-form input[type='date'] { width: 150px; }
 .salary-form .button { margin-top: 0; padding: 6px 12px; }
+.contact-cell { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.contact-lines { display: flex; flex-direction: column; font-size: 0.88rem; min-width: 0; }
+.contact-email { overflow-wrap: anywhere; }
+.contact-cell .button, .contact-actions .button { margin-top: 0; padding: 6px 12px; }
+.contact-form { display: flex; flex-direction: column; gap: 6px; min-width: 200px; }
+.contact-form input { padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.contact-actions { display: flex; gap: 6px; }
+@media (max-width: 640px) {
+  /* Phone cards: contact details span the card; the editor's fields fill it. */
+  .table-cards td.cell-contact { grid-column: 1 / -1; }
+  .contact-form { min-width: 0; align-self: stretch; }
+  .contact-form input { width: 100%; min-width: 0; box-sizing: border-box; }
+}
 td select { padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
 .field-label { font-size: 0.8rem; font-weight: 600; color: var(--muted); }
 .estimate { margin: 6px 0 0; }
@@ -517,7 +550,7 @@ td select { padding: 6px 8px; border: 1px solid var(--border); border-radius: 8p
   input:not([type='checkbox'], [type='radio'], [type='range'], [type='color']), select, textarea { font-size: max(16px, 1em) !important; }
 
   /* Touch targets at least 44×44px (Apple HIG; ~48dp on Android). */
-  .button, .view-toggle button, .chip, .choice, .tab, .kpi-button, .chat-send { min-height: 44px; }
+  .button, .view-toggle button, .chip, .choice, .tab, .kpi-button, .chat-send, .filter-toggle, .filter-reset, .email-history summary { min-height: 44px; }
   .pager-btn { min-width: 44px; height: 44px; }
   .chat-icon { width: 40px; height: 40px; }
   .gallery-nav { width: 44px; height: 44px; }
