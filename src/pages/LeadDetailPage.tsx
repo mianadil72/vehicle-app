@@ -4,6 +4,7 @@ import {
   ApiError,
   assignLead,
   closeLead,
+  emailLead,
   fetchLead,
   fetchSalesReps,
   logFollowUp,
@@ -19,6 +20,8 @@ import {
   CLOSED_LEAD_STATUSES,
   CONTACT_METHODS,
   FOLLOW_UP_INTERVAL_DAYS,
+  LEAD_EMAIL_BODY_MAX_LENGTH,
+  LEAD_EMAIL_SUBJECT_MAX_LENGTH,
   LEAD_NOTE_MAX_LENGTH,
   MAX_FOLLOW_UPS,
   leadReference,
@@ -107,6 +110,7 @@ export function LeadDetailPage() {
       <div className="lead-layout">
         <div className="stack">
           <CustomerCard lead={lead} />
+          <EmailCustomer key={lead.id} lead={lead} onChange={setUpdated} />
           <FollowUps lead={lead} onChange={setUpdated} />
         </div>
         <div className="stack">
@@ -240,6 +244,152 @@ function ReturningCustomer({ lead }: { lead: Lead }) {
         </div>
       )}
     </div>
+  );
+}
+
+/** A starting point the rep edits: "Your enquiry about the 2022 Toyota Camry" / "Hi Ada,". */
+function draftFor(lead: Lead) {
+  const about = lead.vehicle ? `the ${lead.vehicle.title}` : `a ${lead.interestCondition === 'Certified' ? 'certified pre-owned' : lead.interestCondition.toLowerCase()} vehicle`;
+  return {
+    subject: `Your enquiry about ${about}`,
+    body: `Hi ${lead.customer.firstName},\n\nThank you for your enquiry about ${about}.\n\n`,
+  };
+}
+
+/**
+ * Write and send an email to the customer from the portal. Sent from the dealership's address with the
+ * rep's work email as Reply-To; listed below with its outcome, and optionally logged as the next follow-up.
+ */
+function EmailCustomer({ lead, onChange }: { lead: Lead; onChange: (lead: Lead) => void }) {
+  const auth = useAuth();
+  const errorText = useErrorText();
+  const [draft, setDraft] = useState(() => draftFor(lead));
+  const [countIt, setCountIt] = useState(true);
+  const [errors, setErrors] = useState<Partial<Record<string, string>>>({});
+  const [formError, setFormError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+
+  const mine = lead.assignedTo?.id === auth.user?.id;
+  const canWork = mine || auth.isLeadManager;
+  const closed = CLOSED_LEAD_STATUSES.includes(lead.status);
+  const canCount = !closed && lead.assignedTo !== null && lead.followUps < MAX_FOLLOW_UPS;
+  const nextLabel = ORDINAL[lead.followUps];
+
+  const onSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setFormError(null);
+    setNotice(null);
+    const problems: Record<string, string> = {};
+    if (!draft.subject.trim()) problems.subject = 'Add a subject';
+    if (!draft.body.trim()) problems.body = 'Write a message';
+    setErrors(problems);
+    if (Object.keys(problems).length > 0) return;
+    setSending(true);
+    try {
+      const next = await emailLead(lead.id, { ...draft, countAsFollowUp: canCount && countIt });
+      const latest = next.emails[0];
+      onChange(next);
+      if (latest?.status === 'Failed') {
+        setFormError(`The email couldn't be sent: ${latest.error ?? 'unknown error'}. Your text is kept below; try again.`);
+      } else {
+        setNotice(
+          `${latest?.status === 'Logged' ? 'Recorded (no mail server set up, so it was only printed on the server)' : 'Sent'} to ${lead.customer.email}` +
+            (latest?.followUpNumber ? ` and logged as the ${ORDINAL[latest.followUpNumber - 1]} follow-up.` : '.'),
+        );
+        setDraft({ subject: draft.subject, body: `Hi ${lead.customer.firstName},\n\n` });
+      }
+    } catch (err) {
+      if (err instanceof ApiError && Object.keys(err.fields).length > 0) setErrors(err.fields);
+      else setFormError(errorText(err, "Couldn't send the email."));
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <section className="panel" aria-labelledby="email-title">
+      <h2 className="panel-title" id="email-title">Email customer</h2>
+      {canWork && !lead.canEmail ? (
+        <p className="field-hint">
+          Ask an admin to add your work email to your account first. Customer replies go to it.
+        </p>
+      ) : canWork ? (
+        <form className="stack" onSubmit={onSubmit} noValidate>
+          <p className="field-hint">
+            To <span className="mono">{lead.customer.email}</span>
+            {lead.preferredContact !== 'Email' && <> · prefers {lead.preferredContact === 'Text' ? 'text messages' : 'phone calls'}</>}.
+            {' '}Replies go to your email; your name and contact details are added at the end.
+          </p>
+          {formError && <div className="alert-error" role="alert">{formError}</div>}
+          {notice && <div className="alert-success" role="status">{notice}</div>}
+          <fieldset disabled={sending} className="stack">
+            <div className="field">
+              <label htmlFor="email-subject">Subject</label>
+              <input
+                id="email-subject"
+                value={draft.subject}
+                maxLength={LEAD_EMAIL_SUBJECT_MAX_LENGTH}
+                onChange={(e) => setDraft({ ...draft, subject: e.target.value })}
+                aria-invalid={errors.subject ? true : undefined}
+                aria-describedby={errors.subject ? 'email-subject-error' : undefined}
+              />
+              {errors.subject && <p className="field-error" id="email-subject-error">{errors.subject}</p>}
+            </div>
+            <div className="field">
+              <label htmlFor="email-body">Message</label>
+              <textarea
+                id="email-body"
+                rows={7}
+                maxLength={LEAD_EMAIL_BODY_MAX_LENGTH}
+                value={draft.body}
+                onChange={(e) => setDraft({ ...draft, body: e.target.value })}
+                aria-invalid={errors.body ? true : undefined}
+                aria-describedby={errors.body ? 'email-body-error' : undefined}
+                className="lead-message"
+              />
+              {errors.body && <p className="field-error" id="email-body-error">{errors.body}</p>}
+            </div>
+            {canCount && (
+              <label className="check">
+                <input type="checkbox" checked={countIt} onChange={(e) => setCountIt(e.target.checked)} />
+                <span>Count as the {nextLabel} follow-up</span>
+              </label>
+            )}
+          </fieldset>
+          <div className="form-actions">
+            <button type="submit" className="button" disabled={sending}>{sending ? 'Sending…' : 'Send email'}</button>
+          </div>
+        </form>
+      ) : (
+        <p className="field-hint">Only {lead.assignedTo?.username ?? 'the assigned rep'} or a manager can email this customer.</p>
+      )}
+
+      {lead.emails.length > 0 && (
+        <>
+          <h3 className="lead-subtitle email-history-title">Sent emails ({lead.emails.length})</h3>
+          <ul className="email-history">
+            {lead.emails.map((m) => (
+              <li key={m.id}>
+                <details>
+                  <summary>
+                    <span className={`pill notify-${m.status.toLowerCase()}`}>{m.status === 'Logged' ? 'Console only' : m.status}</span>
+                    <span className="email-subject">{m.subject}</span>
+                    <span className="field-hint">
+                      <time dateTime={m.createdAt}>{formatDateTime(m.createdAt)}</time> · {m.sentBy}
+                      {m.followUpNumber && <> · {ORDINAL[m.followUpNumber - 1]} follow-up</>}
+                    </span>
+                  </summary>
+                  <p className="field-hint">To {m.to} · replies to {m.replyTo}</p>
+                  {m.error && <p className="field-error">{m.error}</p>}
+                  <p className="comment-body">{m.body}</p>
+                </details>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </section>
   );
 }
 

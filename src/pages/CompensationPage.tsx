@@ -1,8 +1,8 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { ApiError, createCompPlan, fetchCompPlans, fetchStaff, setManager, setSalary, useRemote } from '../api';
+import { ApiError, createCompPlan, fetchCompPlans, fetchStaff, setManager, setSalary, setStaffContact, useRemote } from '../api';
 import { useAuth } from '../auth';
 import { RemoteStatus } from '../components/RemoteStatus';
-import { formatDayLong, formatMoney } from '../format';
+import { formatDayLong, formatMoney, formatPhone } from '../format';
 import type { CompPlan, StaffMember } from '../types';
 
 const localToday = () => new Intl.DateTimeFormat('en-CA').format(new Date());
@@ -137,14 +137,18 @@ function Staff({ staff, onSaved }: { staff: StaffMember[]; onSaved: () => void }
   const managers = staff.filter((s) => s.role === 'manager' && s.isActive);
   return (
     <section className="panel" aria-labelledby="staff-title">
-      <h2 className="panel-title" id="staff-title">Salaries and teams</h2>
-      <p className="field-hint">Base salary is annual and paid bi-weekly (÷ 26). A new salary applies from the first pay period starting on or after its date.</p>
+      <h2 className="panel-title" id="staff-title">Staff, salaries and teams</h2>
+      <p className="field-hint">
+        Base salary is annual and paid bi-weekly (÷ 26). A new salary applies from the first pay period starting on or after its date.
+        The work email is where customers' replies go when this person emails them from a lead.
+      </p>
       <div className="table-wrap table-cards-wrap">
         <table className="table-cards">
           <thead>
             <tr>
               <th>Person</th>
               <th>Role</th>
+              <th>Contact</th>
               <th>Manager</th>
               <th className="num">Annual salary</th>
               <th>Change salary</th>
@@ -185,6 +189,9 @@ function StaffRow({ person: p, managers, onSaved }: { person: StaffMember; manag
     <tr className={p.isActive ? undefined : 'inactive'}>
       <td className="cell-title">{p.username}{!p.isActive && <span className="muted"> (deactivated)</span>}</td>
       <td data-label="Role">{p.role === 'manager' ? 'Manager' : p.role === 'sales' ? 'Sales rep' : 'Admin'}</td>
+      <td data-label="Contact" className="cell-contact">
+        <ContactCell person={p} onSaved={onSaved} />
+      </td>
       <td data-label="Manager">
         {p.role === 'sales' ? (
           <select
@@ -223,5 +230,65 @@ function StaffRow({ person: p, managers, onSaved }: { person: StaffMember; manag
         {error && <p className="field-error" role="alert">{error}</p>}
       </td>
     </tr>
+  );
+}
+
+/** Work email and mobile, with an inline editor. Empty fields clear the value. */
+function ContactCell({ person: p, onSaved }: { person: StaffMember; onSaved: () => void }) {
+  const [editing, setEditing] = useState(false);
+  const [email, setEmail] = useState(p.email ?? '');
+  const [mobile, setMobile] = useState(p.mobile ? formatPhone(p.mobile) : '');
+  const [busy, setBusy] = useState(false);
+  const [errors, setErrors] = useState<Partial<Record<string, string>>>({});
+
+  const onSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setErrors({});
+    try {
+      await setStaffContact(p.id, email, mobile);
+      setEditing(false);
+      onSaved();
+    } catch (err) {
+      setErrors(err instanceof ApiError ? (Object.keys(err.fields).length > 0 ? err.fields : { form: err.message }) : { form: "Couldn't save." });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!editing) {
+    return (
+      <div className="contact-cell">
+        <div className="contact-lines">
+          {p.email ? <span className="contact-email">{p.email}</span> : <span className="muted">No email</span>}
+          {p.mobile ? <span>{formatPhone(p.mobile)}</span> : <span className="muted">No mobile</span>}
+        </div>
+        <button
+          type="button"
+          className="button button-secondary"
+          onClick={() => {
+            setEmail(p.email ?? '');
+            setMobile(p.mobile ? formatPhone(p.mobile) : '');
+            setEditing(true);
+          }}
+          aria-label={`Edit contact details of ${p.username}`}
+        >
+          Edit
+        </button>
+      </div>
+    );
+  }
+  return (
+    <form className="contact-form" onSubmit={onSubmit} noValidate>
+      <input type="email" inputMode="email" autoComplete="off" aria-label={`Work email of ${p.username}`} placeholder="name@dealership.com" value={email} onChange={(e) => setEmail(e.target.value)} aria-invalid={errors.email ? true : undefined} />
+      {errors.email && <p className="field-error">{errors.email}</p>}
+      <input type="tel" inputMode="tel" autoComplete="off" aria-label={`Mobile of ${p.username}`} placeholder="(555) 123-4567" value={mobile} onChange={(e) => setMobile(e.target.value)} aria-invalid={errors.mobile ? true : undefined} />
+      {errors.mobile && <p className="field-error">{errors.mobile}</p>}
+      {errors.form && <p className="field-error" role="alert">{errors.form}</p>}
+      <div className="contact-actions">
+        <button type="submit" className="button" disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
+        <button type="button" className="button button-secondary" disabled={busy} onClick={() => { setEditing(false); setErrors({}); }}>Cancel</button>
+      </div>
+    </form>
   );
 }

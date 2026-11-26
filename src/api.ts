@@ -269,6 +269,11 @@ export function logFollowUp(id: string, method: ContactMethod, note: string): Pr
   return postJson<Lead>(`/api/leads/${encodeURIComponent(id)}/follow-ups`, { method, note });
 }
 
+/** Emails the customer (Reply-To: your work email); optionally records it as the next follow-up. */
+export function emailLead(id: string, email: { subject: string; body: string; countAsFollowUp: boolean }): Promise<Lead> {
+  return postJson<Lead>(`/api/leads/${encodeURIComponent(id)}/emails`, email);
+}
+
 export function closeLead(id: string, outcome: 'Won' | 'Lost'): Promise<Lead> {
   return postJson<Lead>(`/api/leads/${encodeURIComponent(id)}/close`, { outcome });
 }
@@ -346,5 +351,7 @@ export const createCompPlan = (plan: { effectiveFrom: string; managerOverride: n
   postJson<CompPlan[]>('/api/admin/comp-plans', plan);
 export const setSalary = (userId: string, annualSalary: number, effectiveFrom: string) =>
   putJson<StaffMember[]>(`/api/admin/salaries/${encodeURIComponent(userId)}`, { annualSalary, effectiveFrom });
+export const setStaffContact = (userId: string, email: string, mobile: string) =>
+  putJson<StaffMember[]>(`/api/users/${encodeURIComponent(userId)}/contact`, { email, mobile });
 export const setManager = (userId: string, managerId: string | null) =>
   putJson<StaffMember[]>(`/api/users/${encodeURIComponent(userId)}/manager`, { managerId: managerId === null ? null : Number(managerId) });

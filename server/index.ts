@@ -56,13 +56,15 @@ import {
   listPlans,
   listStaff,
   setManager,
+  setStaffContact,
   setSalary,
   statement,
   teamStatements,
   weeklyStats,
 } from './payroll.ts';
 import { SALE_STATUSES, type SaleStatus } from '../src/types.ts';
-import { validateLead } from '../src/leadValidation.ts';
+import { validateLead, validateLeadEmail, validateStaffContact } from '../src/leadValidation.ts';
+import { sendLeadEmail } from './leadEmails.ts';
 import { leadReference, type ContactMethod } from '../src/types.ts';
 import { CHAT_MESSAGE_MAX_LENGTH, chat, chatEnabled, chatThrottle } from './chat.ts';
 import { inventoryStats } from './stats.ts';
@@ -521,6 +523,37 @@ app.post('/api/leads/:id/close', requireSalesTeam, async (req, res) => {
   await sendLeadChange(res, id, await closeLead(id, res.locals.user as User, outcome));
 });
 
+// Body: { subject, body, countAsFollowUp }. Emails the customer from the lead page (Reply-To: the sender's
+// work email); records it, and optionally the next follow-up. Returns the refreshed lead.
+app.post('/api/leads/:id/emails', requireSalesTeam, async (req, res) => {
+  const id = toId(req.params.id);
+  const { subject, body, countAsFollowUp } = (req.body ?? {}) as { subject?: unknown; body?: unknown; countAsFollowUp?: unknown };
+  const check = validateLeadEmail(subject, body);
+  if (!check.ok) {
+    res.status(400).json({ error: 'Some fields are invalid', fields: check.errors });
+    return;
+  }
+  if (id === undefined) {
+    res.status(404).json({ error: 'Lead not found' });
+    return;
+  }
+  const result = await sendLeadEmail(id, res.locals.user as User, { ...check.value, countAsFollowUp: countAsFollowUp === true });
+  switch (result.kind) {
+    case 'not-found':
+      res.status(404).json({ error: 'Lead not found' });
+      return;
+    case 'no-sender-email':
+      res.status(400).json({ error: 'Ask an admin to add your email address to your account first. Customer replies go to it.' });
+      return;
+    case 'throttled':
+      res.status(429).setHeader('Retry-After', String(result.minutes * 60));
+      res.json({ error: `You've sent a lot of emails in the last hour. Try again in ${result.minutes} minute${result.minutes === 1 ? '' : 's'}.` });
+      return;
+    case 'done':
+      res.json(result.lead);
+  }
+});
+
 // Sends the manager's email/text for this lead again (e.g. after fixing the SMTP settings).
 app.post('/api/leads/:id/notify', requireLeadManager, async (req, res) => {
   const id = toId(req.params.id);
@@ -753,6 +786,27 @@ app.put('/api/admin/salaries/:userId', requireAdmin, async (req, res) => {
 });
 
 // Body: { managerId | null }
+// Body: { email, mobile } (either may be empty to clear). A staff member's work email and mobile.
+app.put('/api/users/:id/contact', requireAdmin, async (req, res) => {
+  const id = toId(req.params.id);
+  const { email, mobile } = (req.body ?? {}) as { email?: unknown; mobile?: unknown };
+  const check = validateStaffContact(email, mobile);
+  if (!check.ok) {
+    res.status(400).json({ error: 'Some fields are invalid', fields: check.errors });
+    return;
+  }
+  const result = id === undefined ? 'not-found' : await setStaffContact(id, check.value);
+  if (result === 'not-found') {
+    res.status(404).json({ error: 'User not found' });
+    return;
+  }
+  if (result === 'duplicate-email') {
+    res.status(409).json({ error: 'Another account already uses that email', fields: { email: 'Another account already uses that email' } });
+    return;
+  }
+  res.json(await listStaff());
+});
+
 app.put('/api/users/:id/manager', requireAdmin, async (req, res) => {
   const id = toId(req.params.id);
   const raw = (req.body as { managerId?: unknown } | undefined)?.managerId;

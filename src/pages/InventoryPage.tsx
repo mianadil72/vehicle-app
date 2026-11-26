@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useSearchParams } from 'react-router';
 import { fetchVehicles, useRemote } from '../api';
 import { useAuth } from '../auth';
@@ -9,6 +9,7 @@ import { VehicleCard } from '../components/VehicleCard';
 import { VehicleTable } from '../components/VehicleTable';
 import { RemoteStatus } from '../components/RemoteStatus';
 import { formatPrice } from '../format';
+import { TABLET_QUERY, useMediaQuery } from '../media';
 
 type SortKey = 'price-asc' | 'price-desc' | 'year-desc' | 'year-asc' | 'name-asc';
 type View = 'grid' | 'table';
@@ -153,6 +154,23 @@ function Inventory({ vehicles }: { vehicles: Vehicle[] }) {
       return next;
     }, { replace: true });
 
+  // Phones and tablets: the category tabs and filters fold away while a search is entered, so the
+  // results stay in view above the keyboard. A tap on the toggle overrides that until the search box
+  // goes from empty to filled (or back); typing more letters doesn't undo the user's choice.
+  const compact = useMediaQuery(TABLET_QUERY);
+  const searching = search.trim() !== '';
+  const [manual, setManual] = useState<{ open: boolean; searching: boolean } | null>(null);
+  const filtersOpen = !compact || (manual && manual.searching === searching ? manual.open : !searching);
+  const activeFilters =
+    Number(category !== 'All') + Number(minYear !== bounds.minYear) + Number(maxPrice !== bounds.maxPrice) + Number(sort !== 'price-asc');
+  // Reset on the folded bar clears the filters but keeps the search text.
+  const resetFiltersKeepSearch = () =>
+    setParams((prev) => {
+      const next = new URLSearchParams();
+      for (const k of ['q', 'view', 'size'] as const) if (prev.has(k)) next.set(k, prev.get(k)!);
+      return next;
+    }, { replace: true });
+
   return (
     <>
       <header className="topbar">
@@ -170,7 +188,11 @@ function Inventory({ vehicles }: { vehicles: Vehicle[] }) {
           aria-label="Search vehicles"
           placeholder="Search name, model, year or stock #"
           value={search}
-          onChange={(e) => set('q', e.target.value)}
+          onChange={(e) => {
+            // A new search (or clearing it) drops any manual open/close of the folded filters.
+            if ((e.target.value.trim() !== '') !== searching) setManual(null);
+            set('q', e.target.value);
+          }}
         />
         {isAdmin && (
           <Link to="/vehicles/new" state={{ from: location.pathname + location.search }} className="button add-button">
@@ -179,54 +201,74 @@ function Inventory({ vehicles }: { vehicles: Vehicle[] }) {
         )}
       </header>
 
-      <nav className="tabs" aria-label="Vehicle categories">
-        {(['All', ...CATEGORIES] as const).map((c) => (
+      {compact && (
+        <div className="filter-bar">
           <button
-            key={c}
-            className={c === category ? 'tab active' : 'tab'}
-            onClick={() => set('cat', c)}
+            type="button"
+            className="filter-toggle"
+            aria-expanded={filtersOpen}
+            aria-controls="inventory-filters"
+            onClick={() => setManual({ open: !filtersOpen, searching })}
           >
-            {c}
-            <span className="count">{counts[c] ?? 0}</span>
+            {filtersOpen ? 'Hide filters' : activeFilters > 0 ? `Filters · ${activeFilters}` : 'Filters'}
+            <span className="chevron" aria-hidden>▾</span>
           </button>
-        ))}
-      </nav>
-
-      <section className="toolbar">
-        <label>
-          Min year
-          <select value={minYear} onChange={(e) => set('minYear', e.target.value)}>
-            {Array.from({ length: bounds.maxYear - bounds.minYear + 1 }, (_, i) => bounds.minYear + i).map((y) => (
-              <option key={y} value={y}>{y}</option>
-            ))}
-          </select>
-        </label>
-        <label className="range">
-          Max price <strong>{formatPrice(maxPrice)}</strong>
-          <input
-            type="range"
-            min={PRICE_FLOOR}
-            max={bounds.maxPrice}
-            step={1000}
-            value={maxPrice}
-            onChange={(e) => set('maxPrice', e.target.value)}
-          />
-        </label>
-        <label>
-          Sort by
-          <select value={sort} onChange={(e) => set('sort', e.target.value)}>
-            <option value="price-asc">Price: low to high</option>
-            <option value="price-desc">Price: high to low</option>
-            <option value="year-desc">Year: newest</option>
-            <option value="year-asc">Year: oldest</option>
-            <option value="name-asc">Name: A–Z</option>
-          </select>
-        </label>
-        <div className="view-toggle" role="group" aria-label="View">
-          <button className={view === 'grid' ? 'active' : ''} onClick={() => set('view', 'grid')}>Grid</button>
-          <button className={view === 'table' ? 'active' : ''} onClick={() => set('view', 'table')}>Table</button>
+          {!filtersOpen && activeFilters > 0 && (
+            <button type="button" className="filter-reset" onClick={resetFiltersKeepSearch}>Reset filters</button>
+          )}
         </div>
-      </section>
+      )}
+
+      <div id="inventory-filters" hidden={!filtersOpen}>
+        <nav className="tabs" aria-label="Vehicle categories">
+          {(['All', ...CATEGORIES] as const).map((c) => (
+            <button
+              key={c}
+              className={c === category ? 'tab active' : 'tab'}
+              onClick={() => set('cat', c)}
+            >
+              {c}
+              <span className="count">{counts[c] ?? 0}</span>
+            </button>
+          ))}
+        </nav>
+
+        <section className="toolbar">
+          <label>
+            Min year
+            <select value={minYear} onChange={(e) => set('minYear', e.target.value)}>
+              {Array.from({ length: bounds.maxYear - bounds.minYear + 1 }, (_, i) => bounds.minYear + i).map((y) => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
+          </label>
+          <label className="range">
+            Max price <strong>{formatPrice(maxPrice)}</strong>
+            <input
+              type="range"
+              min={PRICE_FLOOR}
+              max={bounds.maxPrice}
+              step={1000}
+              value={maxPrice}
+              onChange={(e) => set('maxPrice', e.target.value)}
+            />
+          </label>
+          <label>
+            Sort by
+            <select value={sort} onChange={(e) => set('sort', e.target.value)}>
+              <option value="price-asc">Price: low to high</option>
+              <option value="price-desc">Price: high to low</option>
+              <option value="year-desc">Year: newest</option>
+              <option value="year-asc">Year: oldest</option>
+              <option value="name-asc">Name: A–Z</option>
+            </select>
+          </label>
+          <div className="view-toggle" role="group" aria-label="View">
+            <button className={view === 'grid' ? 'active' : ''} onClick={() => set('view', 'grid')}>Grid</button>
+            <button className={view === 'table' ? 'active' : ''} onClick={() => set('view', 'table')}>Table</button>
+          </div>
+        </section>
+      </div>
 
       <div className="list-head">
         <p className="summary" ref={listTop}>

@@ -385,3 +385,38 @@ BEGIN
   INSERT INTO dbo.CompPlanTiers (PlanId, FromUnit, PerVehicle) VALUES (@plan, 1, 200.00), (@plan, 9, 300.00), (@plan, 13, 400.00);
 END
 GO
+
+-- ---------------------------------------------------------------------------------------------
+-- Staff contact details and emails sent to customers from the lead page (server/leads.ts).
+-- ---------------------------------------------------------------------------------------------
+
+-- Work email (Reply-To on emails a rep sends from the portal) and mobile. Optional; set by an admin.
+IF COL_LENGTH(N'dbo.Users', N'Email') IS NULL ALTER TABLE dbo.Users ADD Email NVARCHAR(254) NULL;  -- lower-case
+IF COL_LENGTH(N'dbo.Users', N'Mobile') IS NULL ALTER TABLE dbo.Users ADD Mobile VARCHAR(16) NULL;  -- digits, optional leading +
+GO
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_Users_Email' AND object_id = OBJECT_ID(N'dbo.Users'))
+  CREATE UNIQUE INDEX UX_Users_Email ON dbo.Users (Email) WHERE Email IS NOT NULL;
+GO
+
+IF OBJECT_ID(N'dbo.LeadEmails', N'U') IS NULL
+BEGIN
+  -- Emails a sales rep (or manager/admin) sent to the customer from the lead page. Plain text.
+  CREATE TABLE dbo.LeadEmails (
+    EmailId         INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_LeadEmails PRIMARY KEY,
+    LeadId          INT            NOT NULL CONSTRAINT FK_LeadEmails_Leads REFERENCES dbo.Leads (LeadId) ON DELETE CASCADE,
+    SentByUserId    INT            NOT NULL CONSTRAINT FK_LeadEmails_Users REFERENCES dbo.Users (UserId),
+    ToAddress       NVARCHAR(254)  NOT NULL,
+    ReplyTo         NVARCHAR(254)  NOT NULL,
+    Subject         NVARCHAR(150)  NOT NULL,
+    Body            NVARCHAR(MAX)  NOT NULL,  -- as sent, signature included
+    Status          VARCHAR(10)    NOT NULL CONSTRAINT DF_LeadEmails_Status DEFAULT 'Pending'
+                      CONSTRAINT CK_LeadEmails_Status CHECK (Status IN ('Pending', 'Sent', 'Failed', 'Logged')),
+    Error           NVARCHAR(500)  NULL,
+    FollowUpNumber  TINYINT        NULL,      -- the follow-up this email was recorded as, if any
+    CreatedAt       DATETIME2(0)   NOT NULL CONSTRAINT DF_LeadEmails_CreatedAt DEFAULT SYSUTCDATETIME(),
+    SentAt          DATETIME2(0)   NULL
+  );
+  CREATE INDEX IX_LeadEmails_LeadId ON dbo.LeadEmails (LeadId);
+END
+GO

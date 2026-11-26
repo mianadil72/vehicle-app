@@ -485,8 +485,8 @@ export async function listStaff(): Promise<StaffMember[]> {
   const { recordset } = await pool
     .request()
     .input('today', mssql.Date, today())
-    .query<PersonRow & { ManagerName: string | null; AnnualSalary: number | null; SalaryFrom: string | null }>(`
-      SELECT u.UserId, u.Username, u.Role, u.IsActive, u.ManagerUserId, m.Username AS ManagerName,
+    .query<PersonRow & { ManagerName: string | null; AnnualSalary: number | null; SalaryFrom: string | null; Email: string | null; Mobile: string | null }>(`
+      SELECT u.UserId, u.Username, u.Role, u.IsActive, u.ManagerUserId, m.Username AS ManagerName, u.Email, u.Mobile,
              s.AnnualSalary, ${dateStr('s.EffectiveFrom')} AS SalaryFrom
         FROM dbo.Users u
         LEFT JOIN dbo.Users m ON m.UserId = u.ManagerUserId
@@ -502,7 +502,34 @@ export async function listStaff(): Promise<StaffMember[]> {
     manager: r.ManagerUserId ? ({ id: String(r.ManagerUserId), username: r.ManagerName ?? '' } satisfies PersonRef) : null,
     annualSalary: r.AnnualSalary === null ? null : Number(r.AnnualSalary),
     salaryFrom: r.SalaryFrom,
+    email: r.Email,
+    mobile: r.Mobile,
   }));
+}
+
+/**
+ * Sets a staff member's work email and mobile (already validated; null clears). 'duplicate-email' when
+ * another account already uses the email.
+ */
+export async function setStaffContact(
+  userId: number,
+  contact: { email: string | null; mobile: string | null },
+): Promise<'ok' | 'not-found' | 'duplicate-email'> {
+  const [mssql, pool] = await Promise.all([sql(), getPool()]);
+  if (!(await getPerson(pool, userId))) return 'not-found';
+  try {
+    await pool
+      .request()
+      .input('id', mssql.Int, userId)
+      .input('email', mssql.NVarChar(254), contact.email)
+      .input('mobile', mssql.VarChar(16), contact.mobile)
+      .query('UPDATE dbo.Users SET Email = @email, Mobile = @mobile WHERE UserId = @id');
+  } catch (err) {
+    // 2601: duplicate key in the unique index UX_Users_Email.
+    if ((err as { number?: number }).number === 2601) return 'duplicate-email';
+    throw err;
+  }
+  return 'ok';
 }
 
 /** Sets (or replaces, for the same date) an annual salary from `effectiveFrom`. False if no such staff member. */
